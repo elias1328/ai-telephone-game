@@ -28,6 +28,7 @@ from whisper_game import (
     wrap_with_distractions,
     build_prompt,
     build_generation_prompt,
+    parse_agent_response,
 )
 
 app = Flask(__name__)
@@ -154,12 +155,19 @@ def run_game():
                 prompt = build_prompt(current_text, game_config, i, is_odd)
 
                 try:
-                    current_text = call_model(prompt, game_config)
+                    raw_response = call_model(prompt, game_config)
                 except Exception as e:
                     yield emit("error", {"message": f"Agent {i} failed: {str(e)}"})
                     return
 
                 elapsed = time.time() - start_time
+
+                puzzle_solution = None
+                if game_config.get("mode_recall"):
+                    current_text, puzzle_solution = parse_agent_response(raw_response)
+                else:
+                    current_text = raw_response
+
                 word_count = len(current_text.split())
 
                 summary_data.append(
@@ -171,6 +179,7 @@ def run_game():
                     {
                         "agent_num": i,
                         "text": current_text,
+                        "distractor_solution": puzzle_solution,
                         "word_count": word_count,
                         "time_taken": elapsed,
                     },

@@ -256,6 +256,39 @@
             gap: 0.5rem;
         }
 
+        .distractor-box {
+            margin-top: 0.75rem;
+            border-top: 1px solid var(--border-color);
+            padding-top: 0.5rem;
+            font-size: 0.85rem;
+        }
+
+        .distractor-box summary {
+            cursor: pointer;
+            color: var(--accent-color);
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            user-select: none;
+        }
+
+        .distractor-box summary:hover {
+            opacity: 0.85;
+        }
+
+        .distractor-content {
+            margin-top: 0.5rem;
+            padding: 0.6rem 0.8rem;
+            background: var(--bg-main);
+            border-radius: var(--radius);
+            font-size: 0.8rem;
+            line-height: 1.5;
+            color: var(--text-secondary);
+            white-space: pre-wrap;
+            border: 1px solid var(--border-color);
+        }
+
         /* Main Area */
         .main-content {
             flex: 1;
@@ -674,7 +707,7 @@
                             <span class="slider"></span>
                         </label>
                     </div>
-                    <div class="toggle-description">Agents must try to recall exactly what was said.</div>
+                    <div class="toggle-description">Agents solve an intervening mental puzzle (Brown-Peterson distractor) to disrupt working memory before reciting from memory.</div>
                 </div>
 
                 <div class="toggle-container">
@@ -1079,7 +1112,9 @@
                         createCard(
                             `Agent ${data.agent_num}`, 
                             data.text, 
-                            [`${data.word_count} words`, `${data.time_taken.toFixed(2)}s`]
+                            [`${data.word_count} words`, `${data.time_taken.toFixed(2)}s`],
+                            false,
+                            data.distractor_solution
                         );
                         break;
                     case 'summary':
@@ -1098,19 +1133,32 @@
                 }
             }
 
-            function createCard(title, text, badges = [], isError = false) {
+            function createCard(title, text, badges = [], isError = false, distractor = null) {
                 const card = document.createElement('div');
                 card.className = 'card';
                 if (isError) card.style.borderColor = 'var(--danger-color)';
 
                 let badgesHtml = badges.map(b => `<span class="badge">${b}</span>`).join('');
                 
+                let distractorHtml = '';
+                if (distractor) {
+                    distractorHtml = `
+                        <details class="distractor-box">
+                            <summary>🧠 Solved Cognitive Distractor</summary>
+                            <div class="distractor-content">${escapeHtml(distractor)}</div>
+                        </details>
+                    `;
+                }
+
                 card.innerHTML = `
                     <div class="card-header">
                         <div class="card-title" ${isError ? 'style="color: var(--danger-color)"' : ''}>${title}</div>
                         <div class="badges">${badgesHtml}</div>
                     </div>
-                    <div class="card-body">${escapeHtml(text)}</div>
+                    <div class="card-body">
+                        ${escapeHtml(text)}
+                        ${distractorHtml}
+                    </div>
                 `;
                 
                 // Insert before thinking indicator

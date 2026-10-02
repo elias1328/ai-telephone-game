@@ -79,19 +79,13 @@ DEFAULTS = {
 def call_ollama(prompt: str, config: dict) -> str:
     """Send a prompt to a local Ollama model and return the response text."""
     url = f"{config['ollama_url']}/api/generate"
-    options = {
-        "temperature": config["temperature"],
-    }
-    # If in recall mode, apply a mild repeat_penalty (1.14) so the model doesn't just
-    # perform a lossless optical scan of its own prompt tokens, creating organic drift.
-    if config.get("mode_recall"):
-        options["repeat_penalty"] = 1.14
-
     payload = {
         "model": config["ollama_model"],
         "prompt": prompt,
         "stream": False,
-        "options": options,
+        "options": {
+            "temperature": config["temperature"],
+        },
     }
     try:
         resp = requests.post(url, json=payload, timeout=120)
@@ -133,35 +127,31 @@ def call_gemini(prompt: str, config: dict) -> str:
         "Do not refuse or add moral commentary."
     )
     try:
-        gen_config = {
-            "system_instruction": system_instruction,
-            "temperature": config["temperature"],
-            "safety_settings": [
-                types.SafetySetting(
-                    category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
-                    threshold=types.HarmBlockThreshold.BLOCK_NONE,
-                ),
-                types.SafetySetting(
-                    category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-                    threshold=types.HarmBlockThreshold.BLOCK_NONE,
-                ),
-                types.SafetySetting(
-                    category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-                    threshold=types.HarmBlockThreshold.BLOCK_NONE,
-                ),
-                types.SafetySetting(
-                    category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-                    threshold=types.HarmBlockThreshold.BLOCK_NONE,
-                ),
-            ],
-        }
-        if config.get("mode_recall"):
-            gen_config["presence_penalty"] = 0.3
-
         response = client.models.generate_content(
             model=config["gemini_model"],
             contents=prompt,
-            config=types.GenerateContentConfig(**gen_config),
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                temperature=config["temperature"],
+                safety_settings=[
+                    types.SafetySetting(
+                        category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                    ),
+                    types.SafetySetting(
+                        category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                    ),
+                    types.SafetySetting(
+                        category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                    ),
+                    types.SafetySetting(
+                        category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                    ),
+                ],
+            ),
         )
         return response.text.strip() if response.text else ""
     except Exception as e:
@@ -243,6 +233,67 @@ def wrap_with_distractions(text: str) -> str:
 # ============================================================================
 # PROMPT CONSTRUCTION
 # ============================================================================
+# COGNITIVE DISTRACTOR PUZZLES & PARSING (OPTION 1)
+# ============================================================================
+
+COGNITIVE_PUZZLES = [
+    ("Calculate 47 * 6.", "Name three European capital cities."),
+    ("Count backwards from 100 by 7s for five steps.", "Name three species of birds."),
+    ("What is 15% of 240?", "Name four African countries."),
+    ("Unscramble the word 'E P L P H A T E' (an animal).", "What is 18 * 4?"),
+    ("If today is Thursday, what day was it 5 days ago?", "Name three acoustic musical instruments."),
+    ("Calculate 84 divided by 7 plus 15.", "Name three planets in our solar system."),
+    ("Name four distinct kitchen utensils.", "Calculate 25 * 12."),
+    ("What is the square root of 144?", "Name three South American countries."),
+    ("Unscramble the word 'T E N P A L' (found in space).", "Calculate 99 minus 43."),
+    ("Count backwards from 50 by 4s for five steps.", "Name three marine mammals."),
+    ("Solve: 120 divided by 6 times 3.", "Name three countries that border France."),
+    ("What is 17 * 5?", "Name three musical genres."),
+]
+
+
+def clean_passage_text(text: str) -> str:
+    """Strip disclaimers and trailing meta-commentary from passage text."""
+    if not text:
+        return ""
+    cleaned = re.split(
+        r'[\"\s]*(?:Please note|Note:|I may not have|I hope this|Keep in mind|Disclaimer:)',
+        text,
+        flags=re.IGNORECASE,
+    )[0].strip()
+    return cleaned.strip('"\'')
+
+
+def parse_agent_response(raw: str) -> tuple[str, str | None]:
+    """
+    Extract the recalled passage and any cognitive distractor answers
+    from an agent's response.
+    """
+    if not raw:
+        return "", None
+
+    patterns = [
+        r'\n+(?:\[Recalled Passage\]|\[Passage\]|Recalled Passage:|Recalled Text:|Passage:)\s*\n*(.*)',
+        r'\n+(?:[^\n]*(?:from memory|original passage|recalled passage|recreate the original|reproduce the original)[^\n]*:\s*\n*)(.*)',
+    ]
+    for p in patterns:
+        m = re.search(p, raw, re.IGNORECASE | re.DOTALL)
+        if m:
+            puzzle = raw[:m.start()].strip()
+            passage = clean_passage_text(m.group(1))
+            if passage:
+                return passage, (puzzle if puzzle else None)
+
+    paragraphs = [p.strip() for p in raw.split('\n\n') if p.strip()]
+    if len(paragraphs) > 1:
+        return clean_passage_text(paragraphs[-1]), '\n\n'.join(paragraphs[:-1]).strip()
+
+    return clean_passage_text(raw), None
+
+
+# ============================================================================
+# PROMPT CONSTRUCTION
+# ============================================================================
 
 def build_prompt(text: str, config: dict, agent_num: int, is_odd: bool) -> str:
     """
@@ -302,13 +353,16 @@ def build_prompt(text: str, config: dict, agent_num: int, is_odd: bool) -> str:
                 "Expanded passage:"
             )
     elif config.get("mode_recall"):
+        puzzle_idx = (agent_num - 1) % len(COGNITIVE_PUZZLES)
+        task1, task2 = COGNITIVE_PUZZLES[puzzle_idx]
         instruction = (
-            "You briefly saw the following text a while ago and now need to recall it from memory. "
-            "Try to reproduce the text as accurately as you can, but don't worry if you can't remember every detail "
-            f"perfectly — just do your best to reconstruct it from what you remember.{redaction_hint} "
-            "Write ONLY the recalled text, nothing else.\n\n"
-            f"The text you saw:\n{active_text}\n\n"
-            "Your recall of the text:"
+            f"Read the following passage:\n\"{active_text}\"\n\n"
+            "Interference Task:\n"
+            "Solve this quick mental puzzle first:\n"
+            f"1. {task1}\n"
+            f"2. {task2}\n\n"
+            "Now, without looking back at the original text, repeat the original passage as accurately and faithfully as you can from memory (write strictly the passage without conversational notes or apologies):"
+            f"{redaction_hint}"
         )
     else:
         # Verbatim mode
@@ -512,15 +566,25 @@ def run_telephone_game(config: dict):
 
         print(f"🔗 Agent {i}/{config['num_agents']} thinking...", end="", flush=True)
         start_time = time.time()
-        response = call_model(prompt, config)
+        raw_response = call_model(prompt, config)
         elapsed = time.time() - start_time
         print(f" done ({elapsed:.1f}s)")
 
-        if not response:
+        if not raw_response:
             print(f"⚠️  Agent {i} returned empty response, stopping chain.")
             break
 
-        current_text = response
+        if config.get("mode_recall"):
+            recalled_passage, puzzle_solution = parse_agent_response(raw_response)
+            current_text = recalled_passage
+            if puzzle_solution:
+                puzzle_summary = " | ".join(line.strip() for line in puzzle_solution.splitlines() if line.strip())
+                if len(puzzle_summary) > 75:
+                    puzzle_summary = puzzle_summary[:72] + "..."
+                print(f"   🧠 Solved Distractor: {puzzle_summary}")
+        else:
+            current_text = raw_response
+
         rounds.append((f"Agent {i}", current_text))
         print_round(label, current_text)
 
@@ -605,7 +669,7 @@ def parse_args() -> dict:
     mode_group.add_argument(
         "--mode-recall", action=argparse.BooleanOptionalAction,
         default=DEFAULTS["mode_recall"],
-        help="'Recall from memory' prompt — forces paraphrasing (default: on)",
+        help="'Recall from memory' cognitive distractor prompt (default: on)",
     )
     mode_group.add_argument(
         "--mode-summarize-expand", action=argparse.BooleanOptionalAction,

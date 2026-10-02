@@ -37,7 +37,7 @@ import requests
 DEFAULTS = {
     # Provider settings
     "provider": "ollama",           # "ollama" or "gemini"
-    "ollama_model": "llama3.2",     # Ollama model name
+    "ollama_model": "llama3.2:3b",  # Ollama model name
     "ollama_url": "http://localhost:11434",  # Ollama API base URL
     "gemini_model": "gemini-3.8-flash",     # Gemini model name
 

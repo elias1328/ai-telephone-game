@@ -40,11 +40,22 @@ def index():
 
 @app.route("/api/models", methods=["GET"])
 def get_models():
-    """Return available Ollama models."""
+    """Return available Ollama models, filtering out vision/multimodal models."""
     try:
         resp = requests.get("http://localhost:11434/api/tags", timeout=5)
         if resp.status_code == 200:
-            return jsonify(resp.json())
+            data = resp.json()
+            models = data.get("models", [])
+            # Filter out vision models
+            filtered_models = [
+                m for m in models
+                if "vision" not in m.get("name", "").lower()
+            ]
+            # Prioritize llama3.2:3b as standard/default
+            filtered_models.sort(
+                key=lambda m: 0 if m.get("name") in ("llama3.2:3b", "llama3.2:latest", "llama3.2") else 1
+            )
+            return jsonify({"models": filtered_models})
         return jsonify({"models": []})
     except Exception as e:
         return jsonify({"models": [], "error": str(e)})
@@ -74,7 +85,7 @@ def run_game():
             # Build the config dict expected by whisper_game.call_model
             game_config = {
                 "provider": provider,
-                "ollama_model": config.get("ollama_model", "llama3.2"),
+                "ollama_model": config.get("ollama_model", "llama3.2:3b"),
                 "ollama_url": config.get("ollama_url", "http://localhost:11434"),
                 "gemini_model": config.get("gemini_model", "gemini-3.8-flash"),
                 "temperature": float(config.get("temperature", 0.7)),

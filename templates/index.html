@@ -631,11 +631,28 @@
                     ollamaSelect.innerHTML = '';
                     if (data.models && data.models.length > 0) {
                         data.models.forEach(model => {
+                            // Filter out vision models
+                            if (model.name.toLowerCase().includes('vision')) return;
+
                             const option = document.createElement('option');
                             option.value = model.name;
                             option.textContent = model.name;
+                            // Set llama3.2:3b as default selected
+                            if (model.name === 'llama3.2:3b') {
+                                option.selected = true;
+                            }
                             ollamaSelect.appendChild(option);
                         });
+
+                        // If llama3.2:3b wasn't exact match, check for llama3.2
+                        if (!ollamaSelect.value && ollamaSelect.options.length > 0) {
+                            for (let i = 0; i < ollamaSelect.options.length; i++) {
+                                if (ollamaSelect.options[i].value.startsWith('llama3.2')) {
+                                    ollamaSelect.selectedIndex = i;
+                                    break;
+                                }
+                            }
+                        }
                     } else {
                         const option = document.createElement('option');
                         option.textContent = "No models found";

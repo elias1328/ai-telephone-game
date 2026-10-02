@@ -145,9 +145,11 @@ def call_model(prompt: str, config: dict) -> str:
 # DIFFICULTY MODES — TEXT TRANSFORMS
 # ============================================================================
 
-def redact_words(text: str, fraction: float = 0.20) -> str:
+def redact_words(text: str, fraction: float = 0.15) -> str:
     """Randomly replace a fraction of words with [???]."""
     words = text.split()
+    if not words:
+        return text
     num_to_redact = max(1, int(len(words) * fraction))
     indices = random.sample(range(len(words)), min(num_to_redact, len(words)))
     for i in indices:
@@ -213,20 +215,30 @@ def build_prompt(text: str, config: dict, agent_num: int, is_odd: bool) -> str:
     active_text = text
 
     # Apply redaction transform to the input text
-    if config["mode_redact"]:
-        active_text = redact_words(active_text)
+    is_redacted = config.get("mode_redact", False)
+    if is_redacted:
+        active_text = redact_words(active_text, fraction=0.15)
 
     # Apply distraction transform to the input text
-    if config["mode_distraction"]:
+    if config.get("mode_distraction", False):
         active_text = wrap_with_distractions(active_text)
+
+    # Context note if redaction is enabled so LLM fills in blanks rather than refusing
+    redaction_hint = ""
+    if is_redacted:
+        redaction_hint = (
+            " Some words have been replaced by '[???]'. You MUST replace every '[???]' with a plausible word "
+            "based on context, guessing what was originally there. Never keep '[???]' in your output, "
+            "and never apologize or say you don't know."
+        )
 
     # Build the instruction prompt
     if config.get("mode_summarize_expand"):
         if is_odd:
             instruction = (
-                "Read the following text carefully, then write a concise summary "
-                "capturing only the key facts and main ideas. Do NOT copy the text "
-                "verbatim — put it in your own words.\n\n"
+                f"Read the following passage carefully.{redaction_hint} Write a concise summary "
+                "capturing only the key facts and main ideas. Do NOT copy the text verbatim — "
+                "put it in your own words. Write ONLY the summary, no apologies or conversational filler.\n\n"
                 f"{active_text}\n\n"
                 "Your summary:"
             )
@@ -243,28 +255,35 @@ def build_prompt(text: str, config: dict, agent_num: int, is_odd: bool) -> str:
                 "The following is a brief summary of a longer passage. Expand it "
                 "back into a full, detailed paragraph. Add specific details, context, "
                 f"and description to make it feel like a complete passage.{limit_instruction} "
-                "Do your best to reconstruct what the original might have said.\n\n"
+                "Do your best to reconstruct what the original might have said. Write ONLY the paragraph.\n\n"
                 f"{active_text}\n\n"
                 "Your expanded paragraph:"
             )
-    elif config["mode_recall"]:
+    elif config.get("mode_recall"):
         instruction = (
-            "You briefly saw the following text a while ago and now need to recall it "
-            "from memory. Try to reproduce the text as accurately as you can, but "
-            "don't worry if you can't remember every detail perfectly — just do your "
-            "best to reconstruct it from what you remember. Write ONLY the recalled "
-            "text, nothing else.\n\n"
-            f"The text you saw:\n{active_text}\n\n"
-            "Your recall of the text:"
+            f"You previously read the passage below.{redaction_hint} Reconstruct and repeat the passage "
+            "from memory as accurately as possible. Output ONLY the reconstructed passage. "
+            "Do NOT include commentary, apologies, notes, or explanations.\n\n"
+            f"Passage:\n{active_text}\n\n"
+            "Your reconstructed passage:"
         )
     else:
-        # Verbatim mode — no difficulty modifiers on the prompt itself
-        instruction = (
-            "Repeat the following text exactly as written, word for word. "
-            "Do not add any commentary, explanation, or modifications.\n\n"
-            f"{active_text}\n\n"
-            "Your exact repetition:"
-        )
+        # Verbatim mode
+        if is_redacted:
+            instruction = (
+                f"The following text has missing words marked as '[???]'.{redaction_hint} "
+                "Reconstruct the text by filling in all '[???]' blanks with appropriate words. "
+                "Output ONLY the completed text.\n\n"
+                f"{active_text}\n\n"
+                "Your completed text:"
+            )
+        else:
+            instruction = (
+                "Repeat the following text exactly as written, word for word. "
+                "Do not add any commentary, explanation, or modifications.\n\n"
+                f"{active_text}\n\n"
+                "Your exact repetition:"
+            )
 
     return instruction
 

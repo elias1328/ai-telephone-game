@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Telephone Game</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --bg-sidebar: #1e293b;
+            --bg-card: #334155;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent-color: #06b6d4;
+            --accent-hover: #0891b2;
+            --border-color: #475569;
+            --danger-color: #ef4444;
+            --danger-hover: #dc2626;
+            --radius: 8px;
+            --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            --transition: all 0.2s ease-in-out;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            line-height: 1.5;
+            height: 100vh;
+            display: flex;
+            overflow: hidden;
+        }
+
+        .container {
+            display: flex;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 350px;
+            background-color: var(--bg-sidebar);
+            border-right: 1px solid var(--border-color);
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            overflow-y: auto;
+        }
+
+        .sidebar-header h1 {
+            font-size: 1.5rem;
+            color: var(--accent-color);
+            margin-bottom: 0.5rem;
+        }
+
+        .sidebar-section {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .sidebar-section h3 {
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-secondary);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.5rem;
+        }
+
+        /* Forms */
+        label {
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        select, input[type="text"], input[type="number"], textarea {
+            width: 100%;
+            padding: 0.5rem;
+            border-radius: var(--radius);
+            border: 1px solid var(--border-color);
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: inherit;
+        }
+
+        select:focus, input:focus, textarea:focus {
+            outline: none;
+            border-color: var(--accent-color);
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        /* Segmented Control */
+        .segmented-control {
+            display: flex;
+            background-color: var(--bg-color);
+            border-radius: var(--radius);
+            padding: 0.25rem;
+        }
+
+        .segmented-control label {
+            flex: 1;
+            text-align: center;
+            padding: 0.5rem;
+            cursor: pointer;
+            border-radius: calc(var(--radius) - 2px);
+            transition: var(--transition);
+        }
+
+        .segmented-control input[type="radio"] {
+            display: none;
+        }
+
+        .segmented-control input[type="radio"]:checked + label {
+            background-color: var(--bg-card);
+            color: var(--accent-color);
+            font-weight: 600;
+        }
+
+        /* Sliders */
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        input[type="range"] {
+            flex: 1;
+            accent-color: var(--accent-color);
+        }
+
+        /* Toggle Switches */
+        .toggle-container {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+        
+        .toggle-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .toggle-description {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 24px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: var(--border-color);
+            transition: .4s;
+            border-radius: 24px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider {
+            background-color: var(--accent-color);
+        }
+
+        input:focus + .slider {
+            box-shadow: 0 0 1px var(--accent-color);
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(20px);
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: var(--radius);
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary {
+            background-color: var(--accent-color);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background-color: var(--accent-hover);
+        }
+
+        .btn-danger {
+            background-color: var(--danger-color);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background-color: var(--danger-hover);
+        }
+
+        /* Main Area */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background-color: var(--bg-color);
+            height: 100%;
+        }
+
+        .header {
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+            background-color: var(--bg-sidebar);
+            display: none;
+        }
+
+        .header.active {
+            display: block;
+        }
+
+        .header h2 {
+            font-size: 1.25rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .header p {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .results-area {
+            flex: 1;
+            padding: 2rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        /* Empty State */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--text-secondary);
+            text-align: center;
+            gap: 1rem;
+        }
+
+        .empty-state span.emoji {
+            font-size: 4rem;
+        }
+
+        /* Cards */
+        .card {
+            background-color: var(--bg-card);
+            border-radius: var(--radius);
+            padding: 1.5rem;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border-color);
+            animation: slideIn 0.3s ease-out;
+            position: relative;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.5rem;
+        }
+
+        .card-title {
+            font-weight: 600;
+            color: var(--accent-color);
+        }
+
+        .badges {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .badge {
+            background-color: var(--bg-sidebar);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            border: 1px solid var(--border-color);
+        }
+
+        .card-body {
+            white-space: pre-wrap;
+            line-height: 1.6;
+        }
+
+        /* Thinking Indicator */
+        .thinking {
+            display: none;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem;
+            color: var(--text-secondary);
+            font-style: italic;
+        }
+
+        .thinking.active {
+            display: flex;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--border-color);
+            border-top-color: var(--accent-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Summary Table */
+        .summary-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+            background-color: var(--bg-card);
+            border-radius: var(--radius);
+            overflow: hidden;
+        }
+
+        .summary-table th, .summary-table td {
+            padding: 0.75rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .summary-table th {
+            background-color: var(--bg-sidebar);
+            color: var(--text-secondary);
+            font-weight: 600;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+        }
+
+        .summary-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+            }
+            .sidebar {
+                width: 100%;
+                height: 50vh;
+                border-right: none;
+                border-bottom: 1px solid var(--border-color);
+            }
+            .main-content {
+                height: 50vh;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1>AI Telephone Game</h1>
+            </div>
+
+            <div class="sidebar-section">
+                <h3>Model Settings</h3>
+                <div class="segmented-control">
+                    <input type="radio" id="provider-ollama" name="provider" value="ollama" checked>
+                    <label for="provider-ollama">Ollama</label>
+                    <input type="radio" id="provider-gemini" name="provider" value="gemini">
+                    <label for="provider-gemini">Gemini</label>
+                </div>
+
+                <div id="ollama-model-group">
+                    <label for="ollama-model">Ollama Model</label>
+                    <select id="ollama-model">
+                        <option value="">Loading...</option>
+                    </select>
+                </div>
+
+                <div id="gemini-model-group" style="display: none;">
+                    <label for="gemini-model">Gemini Model</label>
+                    <input type="text" id="gemini-model" value="gemini-3.8-flash">
+                </div>
+
+                <label for="num-agents">Number of Agents</label>
+                <div class="slider-container">
+                    <input type="range" id="num-agents" min="1" max="20" value="5">
+                    <span id="num-agents-val">5</span>
+                </div>
+
+                <label for="temperature">Temperature</label>
+                <div class="slider-container">
+                    <input type="range" id="temperature" min="0.0" max="2.0" step="0.1" value="0.7">
+                    <span id="temperature-val">0.7</span>
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <h3>Starting Text</h3>
+                <div class="toggle-container">
+                    <div class="toggle-row">
+                        <label for="generate-start">Generate starting text</label>
+                        <label class="switch">
+                            <input type="checkbox" id="generate-start">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <div id="custom-text-group">
+                    <label for="start-text">Custom Text</label>
+                    <textarea id="start-text">That's one small step for a man, one giant leap for mankind. The Apollo 11 moon landing was a historic event that captured the imagination of the world.</textarea>
+                </div>
+
+                <div id="topic-text-group" style="display: none;">
+                    <label for="start-topic">Topic</label>
+                    <input type="text" id="start-topic" value="a historical event">
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <h3>Difficulty Modes</h3>
+                
+                <div class="toggle-container">
+                    <div class="toggle-row">
+                        <label for="mode-recall">Recall Mode</label>
+                        <label class="switch">
+                            <input type="checkbox" id="mode-recall" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div class="toggle-description">Agents must try to recall exactly what was said.</div>
+                </div>
+
+                <div class="toggle-container">
+                    <div class="toggle-row">
+                        <label for="mode-summarize">Summarize + Expand</label>
+                        <label class="switch">
+                            <input type="checkbox" id="mode-summarize">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div class="toggle-description">Alternates between summarizing and expanding the text.</div>
+                </div>
+
+                <div class="toggle-container">
+                    <div class="toggle-row">
+                        <label for="mode-redact">Redact Words</label>
+                        <label class="switch">
+                            <input type="checkbox" id="mode-redact">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div class="toggle-description">Randomly redacts words from the input text.</div>
+                </div>
+
+                <div class="toggle-container">
+                    <div class="toggle-row">
+                        <label for="mode-distraction">Distraction Text</label>
+                        <label class="switch">
+                            <input type="checkbox" id="mode-distraction">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div class="toggle-description">Adds distracting sentences to the text.</div>
+                </div>
+            </div>
+
+            <button id="btn-run" class="btn btn-primary">
+                <span>▶</span> Run Game
+            </button>
+            <button id="btn-stop" class="btn btn-danger" style="display: none;">
+                <span>■</span> Stop
+            </button>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <div id="results-header" class="header">
+                <h2>Game Running</h2>
+                <p id="header-config"></p>
+            </div>
+            
+            <div id="results-area" class="results-area">
+                <div id="empty-state" class="empty-state">
+                    <span class="emoji">📞</span>
+                    <h3>Ready to Play</h3>
+                    <p>Configure settings and click Run to start the telephone game.</p>
+                </div>
+                <!-- Cards will be injected here -->
+                <div id="thinking-indicator" class="thinking">
+                    <div class="spinner"></div>
+                    <span id="thinking-text">Agent is thinking...</span>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Elements
+            const providerRadios = document.querySelectorAll('input[name="provider"]');
+            const ollamaGroup = document.getElementById('ollama-model-group');
+            const geminiGroup = document.getElementById('gemini-model-group');
+            const ollamaSelect = document.getElementById('ollama-model');
+            const numAgentsInput = document.getElementById('num-agents');
+            const numAgentsVal = document.getElementById('num-agents-val');
+            const tempInput = document.getElementById('temperature');
+            const tempVal = document.getElementById('temperature-val');
+            const generateToggle = document.getElementById('generate-start');
+            const customGroup = document.getElementById('custom-text-group');
+            const topicGroup = document.getElementById('topic-text-group');
+            const btnRun = document.getElementById('btn-run');
+            const btnStop = document.getElementById('btn-stop');
+            const resultsArea = document.getElementById('results-area');
+            const emptyState = document.getElementById('empty-state');
+            const thinkingIndicator = document.getElementById('thinking-indicator');
+            const thinkingText = document.getElementById('thinking-text');
+            const resultsHeader = document.getElementById('results-header');
+            const headerConfig = document.getElementById('header-config');
+
+            let abortController = null;
+
+            // Fetch Ollama models
+            fetch('/api/models')
+                .then(res => res.json())
+                .then(data => {
+                    ollamaSelect.innerHTML = '';
+                    if (data.models && data.models.length > 0) {
+                        data.models.forEach(model => {
+                            const option = document.createElement('option');
+                            option.value = model.name;
+                            option.textContent = model.name;
+                            ollamaSelect.appendChild(option);
+                        });
+                    } else {
+                        const option = document.createElement('option');
+                        option.textContent = "No models found";
+                        ollamaSelect.appendChild(option);
+                    }
+                })
+                .catch(err => {
+                    ollamaSelect.innerHTML = '<option value="">Error loading models</option>';
+                    console.error("Failed to load models:", err);
+                });
+
+            // Event Listeners
+            providerRadios.forEach(radio => {
+                radio.addEventListener('change', (e) => {
+                    if (e.target.value === 'ollama') {
+                        ollamaGroup.style.display = 'block';
+                        geminiGroup.style.display = 'none';
+                    } else {
+                        ollamaGroup.style.display = 'none';
+                        geminiGroup.style.display = 'block';
+                    }
+                });
+            });
+
+            numAgentsInput.addEventListener('input', (e) => {
+                numAgentsVal.textContent = e.target.value;
+            });
+
+            tempInput.addEventListener('input', (e) => {
+                tempVal.textContent = e.target.value;
+            });
+
+            generateToggle.addEventListener('change', (e) => {
+                if (e.target.checked) {
+                    customGroup.style.display = 'none';
+                    topicGroup.style.display = 'block';
+                } else {
+                    customGroup.style.display = 'block';
+                    topicGroup.style.display = 'none';
+                }
+            });
+
+            btnStop.addEventListener('click', () => {
+                if (abortController) {
+                    abortController.abort();
+                    stopGameUI();
+                }
+            });
+
+            btnRun.addEventListener('click', () => {
+                startGameUI();
+                
+                // Get config
+                const config = {
+                    provider: document.querySelector('input[name="provider"]:checked').value,
+                    ollama_model: document.getElementById('ollama-model').value,
+                    gemini_model: document.getElementById('gemini-model').value,
+                    num_agents: parseInt(document.getElementById('num-agents').value, 10),
+                    temperature: parseFloat(document.getElementById('temperature').value),
+                    start_text: document.getElementById('start-text').value,
+                    generate_start_text: document.getElementById('generate-start').checked,
+                    start_text_topic: document.getElementById('start-topic').value,
+                    mode_recall: document.getElementById('mode-recall').checked,
+                    mode_summarize_expand: document.getElementById('mode-summarize').checked,
+                    mode_redact: document.getElementById('mode-redact').checked,
+                    mode_distraction: document.getElementById('mode-distraction').checked
+                };
+
+                abortController = new AbortController();
+
+                fetch('/api/run', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config),
+                    signal: abortController.signal
+                }).then(response => {
+                    if (!response.body) throw new Error("ReadableStream not yet supported in this browser.");
+                    
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder('utf-8');
+                    let buffer = '';
+
+                    function processStream() {
+                        return reader.read().then(({ done, value }) => {
+                            if (done) {
+                                stopGameUI();
+                                return;
+                            }
+                            
+                            buffer += decoder.decode(value, { stream: true });
+                            let boundary = buffer.indexOf('\n\n');
+                            
+                            while (boundary !== -1) {
+                                const eventStr = buffer.slice(0, boundary);
+                                buffer = buffer.slice(boundary + 2);
+                                
+                                const lines = eventStr.split('\n');
+                                let eventType = 'message';
+                                let eventData = '';
+                                
+                                for (const line of lines) {
+                                    if (line.startsWith('event: ')) {
+                                        eventType = line.slice(7);
+                                    } else if (line.startsWith('data: ')) {
+                                        eventData = line.slice(6);
+                                    }
+                                }
+                                
+                                if (eventData) {
+                                    try {
+                                        const data = JSON.parse(eventData);
+                                        handleSSEEvent(eventType, data);
+                                    } catch(e) {
+                                        console.error("Parse error", e);
+                                    }
+                                }
+                                
+                                boundary = buffer.indexOf('\n\n');
+                            }
+                            
+                            return processStream();
+                        });
+                    }
+                    
+                    return processStream();
+                }).catch(err => {
+                    if (err.name !== 'AbortError') {
+                        console.error('Fetch error:', err);
+                        createCard('Error', err.message, [], true);
+                        stopGameUI();
+                    }
+                });
+            });
+
+            function startGameUI() {
+                btnRun.style.display = 'none';
+                btnStop.style.display = 'flex';
+                emptyState.style.display = 'none';
+                
+                // Clear previous results except empty state and thinking indicator
+                Array.from(resultsArea.children).forEach(child => {
+                    if (child.id !== 'empty-state' && child.id !== 'thinking-indicator') {
+                        resultsArea.removeChild(child);
+                    }
+                });
+            }
+
+            function stopGameUI() {
+                btnRun.style.display = 'flex';
+                btnStop.style.display = 'none';
+                thinkingIndicator.classList.remove('active');
+            }
+
+            function handleSSEEvent(type, data) {
+                switch(type) {
+                    case 'header':
+                        resultsHeader.classList.add('active');
+                        headerConfig.textContent = `Provider: ${data.provider} | Model: ${data.model} | Agents: ${data.num_agents}`;
+                        break;
+                    case 'original':
+                        createCard('Original Text', data.text, [`${data.word_count} words`]);
+                        break;
+                    case 'thinking':
+                        thinkingIndicator.classList.add('active');
+                        thinkingText.textContent = `Agent ${data.agent_num} of ${data.total} is thinking...`;
+                        resultsArea.appendChild(thinkingIndicator); // Move to bottom
+                        scrollToBottom();
+                        break;
+                    case 'result':
+                        thinkingIndicator.classList.remove('active');
+                        createCard(
+                            `Agent ${data.agent_num}`, 
+                            data.text, 
+                            [`${data.word_count} words`, `${data.time_taken.toFixed(2)}s`]
+                        );
+                        break;
+                    case 'summary':
+                        createSummaryTable(data.rounds);
+                        break;
+                    case 'done':
+                        stopGameUI();
+                        break;
+                    case 'error':
+                        createCard('Error', data.message, [], true);
+                        stopGameUI();
+                        break;
+                }
+            }
+
+            function createCard(title, text, badges = [], isError = false) {
+                const card = document.createElement('div');
+                card.className = 'card';
+                if (isError) card.style.borderColor = 'var(--danger-color)';
+
+                let badgesHtml = badges.map(b => `<span class="badge">${b}</span>`).join('');
+                
+                card.innerHTML = `
+                    <div class="card-header">
+                        <div class="card-title" ${isError ? 'style="color: var(--danger-color)"' : ''}>${title}</div>
+                        <div class="badges">${badgesHtml}</div>
+                    </div>
+                    <div class="card-body">${escapeHtml(text)}</div>
+                `;
+                
+                // Insert before thinking indicator
+                resultsArea.insertBefore(card, thinkingIndicator);
+                scrollToBottom();
+            }
+
+            function createSummaryTable(rounds) {
+                const tableContainer = document.createElement('div');
+                tableContainer.className = 'card';
+                
+                let rowsHtml = rounds.map(r => `
+                    <tr>
+                        <td>${r.agent === 0 ? 'Original' : 'Agent ' + r.agent}</td>
+                        <td>${r.word_count}</td>
+                        <td>${r.time ? r.time.toFixed(2) + 's' : '-'}</td>
+                    </tr>
+                `).join('');
+
+                tableContainer.innerHTML = `
+                    <div class="card-header">
+                        <div class="card-title">Game Summary</div>
+                    </div>
+                    <table class="summary-table">
+                        <thead>
+                            <tr>
+                                <th>Round</th>
+                                <th>Word Count</th>
+                                <th>Time Taken</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${rowsHtml}
+                        </tbody>
+                    </table>
+                `;
+                
+                resultsArea.insertBefore(tableContainer, thinkingIndicator);
+                scrollToBottom();
+            }
+
+            function scrollToBottom() {
+                resultsArea.scrollTop = resultsArea.scrollHeight;
+            }
+
+            function escapeHtml(unsafe) {
+                return (unsafe || "").toString()
+                     .replace(/&/g, "&amp;")
+                     .replace(/</g, "&lt;")
+                     .replace(/>/g, "&gt;")
+                     .replace(/"/g, "&quot;")
+                     .replace(/'/g, "&#039;");
+            }
+        });
+    </script>
+</body>
+</html>

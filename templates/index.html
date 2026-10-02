@@ -237,8 +237,23 @@
             color: white;
         }
 
-        .btn-danger:hover {
-            background-color: var(--danger-hover);
+        .btn-secondary {
+            background-color: var(--bg-card);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            background-color: var(--border-color);
+        }
+
+        .sub-settings {
+            margin-top: 0.5rem;
+            padding-left: 0.75rem;
+            border-left: 2px solid var(--accent-color);
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
         }
 
         /* Main Area */
@@ -505,6 +520,18 @@
                         </label>
                     </div>
                     <div class="toggle-description">Alternates between summarizing and expanding the text.</div>
+                    
+                    <div id="expand-limit-container" class="sub-settings" style="display: none;">
+                        <label for="expand-limit-type" style="font-size: 0.8rem; color: var(--text-secondary);">Expand Word Limit</label>
+                        <select id="expand-limit-type" style="font-size: 0.85rem; padding: 0.35rem;">
+                            <option value="none">No limit (unlimited)</option>
+                            <option value="original">Match original text length</option>
+                            <option value="custom">Custom word count</option>
+                        </select>
+                        <div id="expand-limit-custom-group" style="display: none;">
+                            <input type="number" id="expand-custom-words" placeholder="Target words (e.g. 80)" min="10" max="1000" value="80" style="font-size: 0.85rem; padding: 0.35rem;">
+                        </div>
+                    </div>
                 </div>
 
                 <div class="toggle-container">
@@ -541,8 +568,20 @@
         <!-- Main Content -->
         <main class="main-content">
             <div id="results-header" class="header">
-                <h2>Game Running</h2>
-                <p id="header-config"></p>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <h2>Game Running</h2>
+                        <p id="header-config"></p>
+                    </div>
+                    <div id="export-controls" style="display: none; gap: 0.5rem;">
+                        <button id="btn-export-md" class="btn btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">
+                            📥 Export Markdown
+                        </button>
+                        <button id="btn-export-json" class="btn btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">
+                            📥 Export JSON
+                        </button>
+                    </div>
+                </div>
             </div>
             
             <div id="results-area" class="results-area">
@@ -639,6 +678,67 @@
                 }
             });
 
+            const modeSummarizeToggle = document.getElementById('mode-summarize');
+            const expandLimitContainer = document.getElementById('expand-limit-container');
+            const expandLimitType = document.getElementById('expand-limit-type');
+            const expandLimitCustomGroup = document.getElementById('expand-limit-custom-group');
+            const expandCustomWords = document.getElementById('expand-custom-words');
+            const exportControls = document.getElementById('export-controls');
+            const btnExportMd = document.getElementById('btn-export-md');
+            const btnExportJson = document.getElementById('btn-export-json');
+
+            let lastRunRounds = [];
+            let lastRunConfig = null;
+
+            modeSummarizeToggle.addEventListener('change', (e) => {
+                expandLimitContainer.style.display = e.target.checked ? 'flex' : 'none';
+            });
+
+            expandLimitType.addEventListener('change', (e) => {
+                expandLimitCustomGroup.style.display = (e.target.value === 'custom') ? 'block' : 'none';
+            });
+
+            btnExportMd.addEventListener('click', () => {
+                if (!lastRunRounds.length) return;
+                let md = `# AI Telephone Game — Experiment Results\n\n`;
+                md += `**Date:** ${new Date().toLocaleString()}\n`;
+                if (lastRunConfig) {
+                    md += `**Provider:** ${lastRunConfig.provider} (${lastRunConfig.provider === 'ollama' ? lastRunConfig.ollama_model : lastRunConfig.gemini_model})\n`;
+                    md += `**Agents:** ${lastRunConfig.num_agents} | **Temperature:** ${lastRunConfig.temperature}\n\n`;
+                }
+                md += `## Rounds\n\n`;
+                lastRunRounds.forEach(r => {
+                    md += `### ${r.label} (${r.word_count} words)\n\n${r.text}\n\n`;
+                });
+                md += `## Summary\n\n| Round | Words |\n|---|---|\n`;
+                lastRunRounds.forEach(r => {
+                    md += `| ${r.label} | ${r.word_count} |\n`;
+                });
+                downloadFile("telephone_game_results.md", md, "text/markdown");
+            });
+
+            btnExportJson.addEventListener('click', () => {
+                if (!lastRunRounds.length) return;
+                const exportObj = {
+                    date: new Date().toISOString(),
+                    config: lastRunConfig,
+                    rounds: lastRunRounds
+                };
+                downloadFile("telephone_game_results.json", JSON.stringify(exportObj, null, 2), "application/json");
+            });
+
+            function downloadFile(filename, content, type) {
+                const blob = new Blob([content], { type: type });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }
+
             btnStop.addEventListener('click', () => {
                 if (abortController) {
                     abortController.abort();
@@ -649,6 +749,17 @@
             btnRun.addEventListener('click', () => {
                 startGameUI();
                 
+                // Determine word limit for expand mode
+                let expandWordLimit = null;
+                if (modeSummarizeToggle.checked) {
+                    const lType = expandLimitType.value;
+                    if (lType === 'original') {
+                        expandWordLimit = 'original';
+                    } else if (lType === 'custom') {
+                        expandWordLimit = parseInt(expandCustomWords.value, 10) || 80;
+                    }
+                }
+
                 // Get config
                 const config = {
                     provider: document.querySelector('input[name="provider"]:checked').value,
@@ -660,10 +771,15 @@
                     generate_start_text: document.getElementById('generate-start').checked,
                     start_text_topic: document.getElementById('start-topic').value,
                     mode_recall: document.getElementById('mode-recall').checked,
-                    mode_summarize_expand: document.getElementById('mode-summarize').checked,
+                    mode_summarize_expand: modeSummarizeToggle.checked,
+                    expand_word_limit: expandWordLimit,
                     mode_redact: document.getElementById('mode-redact').checked,
                     mode_distraction: document.getElementById('mode-distraction').checked
                 };
+
+                lastRunConfig = config;
+                lastRunRounds = [];
+                exportControls.style.display = 'none';
 
                 abortController = new AbortController();
 
@@ -757,6 +873,11 @@
                         headerConfig.textContent = `Provider: ${data.provider} | Model: ${data.model} | Agents: ${data.num_agents}`;
                         break;
                     case 'original':
+                        lastRunRounds.push({
+                            label: 'Original',
+                            text: data.text,
+                            word_count: data.word_count
+                        });
                         createCard('Original Text', data.text, [`${data.word_count} words`]);
                         break;
                     case 'thinking':
@@ -767,6 +888,11 @@
                         break;
                     case 'result':
                         thinkingIndicator.classList.remove('active');
+                        lastRunRounds.push({
+                            label: `Agent ${data.agent_num}`,
+                            text: data.text,
+                            word_count: data.word_count
+                        });
                         createCard(
                             `Agent ${data.agent_num}`, 
                             data.text, 
@@ -778,6 +904,9 @@
                         break;
                     case 'done':
                         stopGameUI();
+                        if (lastRunRounds.length > 0) {
+                            exportControls.style.display = 'flex';
+                        }
                         break;
                     case 'error':
                         createCard('Error', data.message, [], true);

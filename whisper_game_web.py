@@ -63,6 +63,14 @@ def run_game():
             provider = config.get("provider", "ollama")
             num_agents = config.get("num_agents", 5)
 
+            # Expand word limit parsing
+            expand_limit = config.get("expand_word_limit")
+            if expand_limit and expand_limit != "original":
+                try:
+                    expand_limit = int(expand_limit)
+                except (ValueError, TypeError):
+                    expand_limit = None
+
             # Build the config dict expected by whisper_game.call_model
             game_config = {
                 "provider": provider,
@@ -72,6 +80,7 @@ def run_game():
                 "temperature": float(config.get("temperature", 0.7)),
                 "mode_recall": config.get("mode_recall", True),
                 "mode_summarize_expand": config.get("mode_summarize_expand", False),
+                "expand_word_limit": expand_limit,
                 "mode_redact": config.get("mode_redact", False),
                 "mode_distraction": config.get("mode_distraction", False),
             }
@@ -114,6 +123,9 @@ def run_game():
 
             # Emit original text
             original_words = len(current_text.split())
+            if game_config.get("expand_word_limit") == "original":
+                game_config["expand_word_limit"] = original_words
+
             yield emit(
                 "original", {"text": current_text, "word_count": original_words}
             )

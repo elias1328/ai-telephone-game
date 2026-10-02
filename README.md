@@ -103,6 +103,16 @@ python3 whisper_game.py --provider gemini
 # 10 agents with generated starting text
 python3 whisper_game.py --num-agents 10 --generate-start-text --start-text-topic "the invention of the printing press"
 
+# Summarize + Expand mode with word count limit (match original length)
+python3 whisper_game.py --mode-summarize-expand --expand-word-limit original
+
+# Summarize + Expand with custom word limit (e.g. 60 words)
+python3 whisper_game.py --mode-summarize-expand --expand-word-limit 60
+
+# Export results to Markdown or JSON
+python3 whisper_game.py --num-agents 5 --export results.md
+python3 whisper_game.py --num-agents 5 --export results.json
+
 # Hard mode: redaction + distraction + high temperature
 python3 whisper_game.py --mode-redact --mode-distraction --temperature 1.5
 

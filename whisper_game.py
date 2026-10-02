@@ -60,8 +60,12 @@ DEFAULTS = {
     # Difficulty modes (toggleable)
     "mode_recall": True,            # "Recall from memory" prompt
     "mode_summarize_expand": False, # Summarize then expand
+    "expand_word_limit": None,      # Limit words when expanding in summarize_expand mode (int or None)
     "mode_redact": False,           # Randomly mask ~20% of words with [???]
     "mode_distraction": False,      # Surround text with distracting noise
+
+    # Export
+    "export_path": None,            # Path to export experiment results (.json or .md/.txt)
 
     # Model settings
     "temperature": 0.7,
@@ -217,7 +221,7 @@ def build_prompt(text: str, config: dict, agent_num: int, is_odd: bool) -> str:
         active_text = wrap_with_distractions(active_text)
 
     # Build the instruction prompt
-    if config["mode_summarize_expand"]:
+    if config.get("mode_summarize_expand"):
         if is_odd:
             instruction = (
                 "Read the following text carefully, then write a concise summary "
@@ -227,11 +231,19 @@ def build_prompt(text: str, config: dict, agent_num: int, is_odd: bool) -> str:
                 "Your summary:"
             )
         else:
+            limit_instruction = ""
+            word_limit = config.get("expand_word_limit")
+            if word_limit:
+                limit_instruction = (
+                    f" IMPORTANT: Keep your expanded paragraph to approximately {word_limit} words "
+                    f"(no more than {int(word_limit * 1.15)} words)."
+                )
+
             instruction = (
                 "The following is a brief summary of a longer passage. Expand it "
                 "back into a full, detailed paragraph. Add specific details, context, "
-                "and description to make it feel like a complete passage. Do your best "
-                "to reconstruct what the original might have said.\n\n"
+                f"and description to make it feel like a complete passage.{limit_instruction} "
+                "Do your best to reconstruct what the original might have said.\n\n"
                 f"{active_text}\n\n"
                 "Your expanded paragraph:"
             )
@@ -338,6 +350,67 @@ def print_summary(rounds: list[tuple[str, str]]):
     print()
 
 
+def export_results(filepath: str, config: dict, rounds: list[tuple[str, str]]) -> None:
+    """Export experiment results to JSON or Markdown/Text."""
+    ext = os.path.splitext(filepath)[1].lower()
+    
+    # Calculate word counts and metadata
+    round_data = []
+    prev_count = None
+    for label, text in rounds:
+        w_count = len(text.split())
+        diff = (w_count - prev_count) if prev_count is not None else 0
+        round_data.append({
+            "label": label,
+            "text": text,
+            "word_count": w_count,
+            "word_change": diff
+        })
+        prev_count = w_count
+
+    if ext == ".json":
+        data = {
+            "config": {
+                k: v for k, v in config.items() if k != "start_text" or not config.get("generate_start_text")
+            },
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "rounds": round_data,
+        }
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        print(f"📁 Results exported to JSON: {filepath}")
+    else:
+        # Default to Markdown / Text format
+        lines = [
+            "# AI Telephone Game — Experiment Results",
+            "",
+            f"**Date:** {time.strftime('%Y-%m-%d %H:%M:%S')}",
+            f"**Provider:** {config['provider']} ({config.get('ollama_model') if config['provider'] == 'ollama' else config.get('gemini_model')})",
+            f"**Agents:** {config['num_agents']} | **Temperature:** {config['temperature']}",
+            "",
+            "## Rounds",
+            ""
+        ]
+        for r in round_data:
+            lines.append(f"### {r['label']} ({r['word_count']} words)")
+            lines.append("")
+            lines.append(r["text"])
+            lines.append("")
+        
+        lines.append("## Summary")
+        lines.append("")
+        lines.append("| Round | Words | Change |")
+        lines.append("|---|---|---|")
+        for r in round_data:
+            change_str = "-" if r["label"] == "Original" else f"{r['word_change']:+d}"
+            lines.append(f"| {r['label']} | {r['word_count']} | {change_str} |")
+        lines.append("")
+
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+        print(f"📁 Results exported to Markdown: {filepath}")
+
+
 # ============================================================================
 # MAIN CHAIN RUNNER
 # ============================================================================
@@ -357,6 +430,10 @@ def run_telephone_game(config: dict):
     else:
         start_text = config["start_text"]
 
+    # If expand_word_limit is "original", resolve to actual word count
+    if config.get("expand_word_limit") == "original":
+        config["expand_word_limit"] = len(start_text.split())
+
     # Track all rounds for the summary
     rounds: list[tuple[str, str]] = [("Original", start_text)]
     print_round("ORIGINAL TEXT", start_text)
@@ -368,7 +445,7 @@ def run_telephone_game(config: dict):
         prompt = build_prompt(current_text, config, i, is_odd)
 
         label = f"AGENT {i}"
-        if config["mode_summarize_expand"]:
+        if config.get("mode_summarize_expand"):
             label += " (summarize)" if is_odd else " (expand)"
 
         print(f"🔗 Agent {i}/{config['num_agents']} thinking...", end="", flush=True)
@@ -387,6 +464,10 @@ def run_telephone_game(config: dict):
 
     # Step 3: Print summary
     print_summary(rounds)
+
+    # Step 4: Export if requested
+    if config.get("export_path"):
+        export_results(config["export_path"], config, rounds)
 
     print("✅ Telephone game complete!\n")
 
@@ -470,6 +551,10 @@ def parse_args() -> dict:
         help="Alternate summarize/expand between agents (default: off)",
     )
     mode_group.add_argument(
+        "--expand-word-limit", default=None,
+        help="Word limit when expanding in summarize+expand mode: an integer or 'original' (default: unlimited)",
+    )
+    mode_group.add_argument(
         "--mode-redact", action=argparse.BooleanOptionalAction,
         default=DEFAULTS["mode_redact"],
         help="Randomly mask ~20%% of words with [???] (default: off)",
@@ -480,7 +565,23 @@ def parse_args() -> dict:
         help="Surround target text with distracting paragraphs (default: off)",
     )
 
+    # Export options
+    export_group = parser.add_argument_group("export options")
+    export_group.add_argument(
+        "--export", dest="export_path", default=None,
+        help="File path to export results (.json or .md/.txt)",
+    )
+
     args = parser.parse_args()
+
+    # Parse expand_word_limit (could be "original", an int, or None)
+    expand_limit = args.expand_word_limit
+    if expand_limit and expand_limit != "original":
+        try:
+            expand_limit = int(expand_limit)
+        except ValueError:
+            print(f"⚠️  Warning: Invalid --expand-word-limit '{expand_limit}', ignoring.")
+            expand_limit = None
 
     # Convert to config dict (using underscores)
     config = {
@@ -495,8 +596,10 @@ def parse_args() -> dict:
         "start_text_topic": args.start_text_topic,
         "mode_recall": args.mode_recall,
         "mode_summarize_expand": args.mode_summarize_expand,
+        "expand_word_limit": expand_limit,
         "mode_redact": args.mode_redact,
         "mode_distraction": args.mode_distraction,
+        "export_path": args.export_path,
     }
 
     return config

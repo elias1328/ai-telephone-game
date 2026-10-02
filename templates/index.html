@@ -415,6 +415,180 @@
             border-bottom: none;
         }
 
+        /* Visualization Tabs & Panels */
+        .viz-container {
+            margin-top: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .viz-tabs {
+            display: flex;
+            gap: 0.5rem;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.5rem;
+            overflow-x: auto;
+        }
+
+        .viz-tab-btn {
+            background: transparent;
+            border: 1px solid transparent;
+            color: var(--text-secondary);
+            padding: 0.5rem 1rem;
+            border-radius: var(--radius);
+            font-size: 0.875rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            white-space: nowrap;
+        }
+
+        .viz-tab-btn:hover {
+            color: var(--text-primary);
+            background-color: rgba(255, 255, 255, 0.05);
+        }
+
+        .viz-tab-btn.active {
+            color: var(--accent-color);
+            background-color: var(--bg-sidebar);
+            border-color: var(--border-color);
+        }
+
+        .viz-pane {
+            display: none;
+            animation: fadeIn 0.25s ease-out;
+        }
+
+        .viz-pane.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(6px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Word Evolution Ribbon */
+        .evolution-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            overflow-x: auto;
+            padding: 1rem 0;
+        }
+
+        .evolution-row {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .evolution-label {
+            width: 100px;
+            flex-shrink: 0;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--accent-color);
+        }
+
+        .evolution-tokens {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            padding: 0.5rem;
+            background-color: rgba(15, 23, 42, 0.6);
+            border-radius: var(--radius);
+            border: 1px solid var(--border-color);
+            flex: 1;
+        }
+
+        .token-chip {
+            padding: 2px 7px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-family: inherit;
+            display: inline-block;
+            transition: var(--transition);
+        }
+
+        .token-persisted {
+            background-color: rgba(6, 182, 212, 0.15);
+            color: #67e8f9;
+            border: 1px solid rgba(6, 182, 212, 0.35);
+        }
+
+        .token-mutated {
+            background-color: rgba(245, 158, 11, 0.15);
+            color: #fcd34d;
+            border: 1px solid rgba(245, 158, 11, 0.35);
+        }
+
+        .token-hallucinated {
+            background-color: rgba(244, 63, 94, 0.15);
+            color: #fda4af;
+            border: 1px solid rgba(244, 63, 94, 0.35);
+        }
+
+        /* Side-by-side First vs Last */
+        .comparison-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            margin-top: 0.5rem;
+        }
+
+        @media (max-width: 768px) {
+            .comparison-container {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .comparison-panel {
+            background-color: rgba(15, 23, 42, 0.5);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .comparison-header {
+            font-weight: 600;
+            font-size: 0.9rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .comparison-content {
+            font-size: 0.9rem;
+            line-height: 1.6;
+        }
+
+        .diff-added {
+            background-color: rgba(244, 63, 94, 0.25);
+            color: #fda4af;
+            padding: 1px 3px;
+            border-radius: 3px;
+        }
+
+        .diff-kept {
+            background-color: rgba(16, 185, 129, 0.2);
+            color: #6ee7b7;
+            padding: 1px 3px;
+            border-radius: 3px;
+        }
+
+        .diff-dropped {
+            text-decoration: line-through;
+            opacity: 0.45;
+            color: var(--text-secondary);
+        }
+
         /* Responsive */
         @media (max-width: 768px) {
             .container {
@@ -917,7 +1091,7 @@
                         );
                         break;
                     case 'summary':
-                        createSummaryTable(data.rounds);
+                        createVisualizations(data.rounds);
                         break;
                     case 'done':
                         stopGameUI();
@@ -952,10 +1126,77 @@
                 scrollToBottom();
             }
 
-            function createSummaryTable(rounds) {
-                const tableContainer = document.createElement('div');
-                tableContainer.className = 'card';
-                
+            function createVisualizations(rounds) {
+                const container = document.createElement('div');
+                container.className = 'card viz-container';
+
+                if (!lastRunRounds || lastRunRounds.length < 2) {
+                    createSummaryTable(rounds);
+                    return;
+                }
+
+                const original = lastRunRounds[0];
+                const terminal = lastRunRounds[lastRunRounds.length - 1];
+
+                // Build original words set (lowercase, normalized)
+                const origTokens = original.text.toLowerCase().match(/\b[a-z0-9']+\b/g) || [];
+                const origSet = new Set(origTokens);
+
+                // Build evolution rows HTML
+                let evolutionRowsHtml = '';
+                lastRunRounds.forEach((round, roundIdx) => {
+                    const tokens = round.text.match(/\S+/g) || [];
+                    const chips = tokens.map(token => {
+                        const clean = token.toLowerCase().replace(/[^a-z0-9']/g, '');
+                        let chipClass = 'token-chip token-persisted';
+                        if (!origSet.has(clean)) {
+                            chipClass = roundIdx === 0 ? 'token-chip token-persisted' : 'token-chip token-hallucinated';
+                        }
+                        return `<span class="${chipClass}">${escapeHtml(token)}</span>`;
+                    }).join(' ');
+
+                    evolutionRowsHtml += `
+                        <div class="evolution-row">
+                            <div class="evolution-label">${escapeHtml(round.label)}</div>
+                            <div class="evolution-tokens">${chips}</div>
+                        </div>
+                    `;
+                });
+
+                // Build First vs Last Diff
+                const termTokens = terminal.text.match(/\S+/g) || [];
+                const termSet = new Set(terminal.text.toLowerCase().match(/\b[a-z0-9']+\b/g) || []);
+
+                // Diff original text view (shows dropped vs preserved)
+                const origHighlighted = (original.text.match(/\S+/g) || []).map(token => {
+                    const clean = token.toLowerCase().replace(/[^a-z0-9']/g, '');
+                    if (termSet.has(clean)) {
+                        return `<span class="diff-kept">${escapeHtml(token)}</span>`;
+                    } else {
+                        return `<span class="diff-dropped">${escapeHtml(token)}</span>`;
+                    }
+                }).join(' ');
+
+                // Diff terminal text view (shows preserved vs novel/hallucinated)
+                const termHighlighted = termTokens.map(token => {
+                    const clean = token.toLowerCase().replace(/[^a-z0-9']/g, '');
+                    if (origSet.has(clean)) {
+                        return `<span class="diff-kept">${escapeHtml(token)}</span>`;
+                    } else {
+                        return `<span class="diff-added">${escapeHtml(token)}</span>`;
+                    }
+                }).join(' ');
+
+                // Retention statistics
+                let keptCount = 0;
+                termTokens.forEach(t => {
+                    const clean = t.toLowerCase().replace(/[^a-z0-9']/g, '');
+                    if (origSet.has(clean)) keptCount++;
+                });
+                const retentionRate = Math.round((keptCount / Math.max(1, origTokens.length)) * 100);
+                const driftRate = 100 - retentionRate;
+
+                // Summary Table Rows
                 let rowsHtml = rounds.map(r => `
                     <tr>
                         <td>${r.agent === 0 ? 'Original' : 'Agent ' + r.agent}</td>
@@ -964,25 +1205,101 @@
                     </tr>
                 `).join('');
 
-                tableContainer.innerHTML = `
+                container.innerHTML = `
                     <div class="card-header">
-                        <div class="card-title">Game Summary</div>
+                        <div class="card-title">🔬 Experiment Analytics & Visualizations</div>
                     </div>
-                    <table class="summary-table">
-                        <thead>
-                            <tr>
-                                <th>Round</th>
-                                <th>Word Count</th>
-                                <th>Time Taken</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${rowsHtml}
-                        </tbody>
-                    </table>
+
+                    <!-- Navigation Tabs -->
+                    <div class="viz-tabs">
+                        <button class="viz-tab-btn active" data-tab="tab-evolution">🧬 Word Evolution Ribbon</button>
+                        <button class="viz-tab-btn" data-tab="tab-diff">⚖️ First vs Last Comparison</button>
+                        <button class="viz-tab-btn" data-tab="tab-table">📊 Statistics Table</button>
+                    </div>
+
+                    <!-- Tab 1: Word Evolution Ribbon -->
+                    <div id="tab-evolution" class="viz-pane active">
+                        <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
+                            Track every word's survival across rounds. 
+                            <span class="token-chip token-persisted" style="margin-left: 0.5rem;">Original / Inherited</span>
+                            <span class="token-chip token-hallucinated" style="margin-left: 0.25rem;">New / Mutated Word</span>
+                        </div>
+                        <div class="evolution-grid">
+                            ${evolutionRowsHtml}
+                        </div>
+                    </div>
+
+                    <!-- Tab 2: First vs Last Diff -->
+                    <div id="tab-diff" class="viz-pane">
+                        <div style="display: flex; gap: 1rem; margin-bottom: 0.75rem; flex-wrap: wrap; font-size: 0.85rem;">
+                            <span class="badge" style="background-color: rgba(16, 185, 129, 0.15); color: #6ee7b7; border-color: rgba(16, 185, 129, 0.4);">
+                                <b>Original Retained:</b> ~${retentionRate}%
+                            </span>
+                            <span class="badge" style="background-color: rgba(244, 63, 94, 0.15); color: #fda4af; border-color: rgba(244, 63, 94, 0.4);">
+                                <b>Drift / Novelty:</b> ~${driftRate}%
+                            </span>
+                        </div>
+
+                        <div class="comparison-container">
+                            <div class="comparison-panel">
+                                <div class="comparison-header">
+                                    <span>Original Starting Text</span>
+                                    <span class="badge">${original.word_count} words</span>
+                                </div>
+                                <div class="comparison-content">
+                                    ${origHighlighted}
+                                </div>
+                                <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: auto; padding-top: 0.5rem;">
+                                    Strikethrough = words that didn't survive to the end.
+                                </div>
+                            </div>
+
+                            <div class="comparison-panel">
+                                <div class="comparison-header">
+                                    <span>Final Reconstructed Text (${terminal.label})</span>
+                                    <span class="badge">${terminal.word_count} words</span>
+                                </div>
+                                <div class="comparison-content">
+                                    ${termHighlighted}
+                                </div>
+                                <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: auto; padding-top: 0.5rem;">
+                                    Pink highlight = words invented / injected by later agents.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab 3: Table -->
+                    <div id="tab-table" class="viz-pane">
+                        <table class="summary-table">
+                            <thead>
+                                <tr>
+                                    <th>Round</th>
+                                    <th>Word Count</th>
+                                    <th>Time Taken</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${rowsHtml}
+                            </tbody>
+                        </table>
+                    </div>
                 `;
-                
-                resultsArea.insertBefore(tableContainer, thinkingIndicator);
+
+                // Wire up tab switching
+                container.querySelectorAll('.viz-tab-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        container.querySelectorAll('.viz-tab-btn').forEach(b => b.classList.remove('active'));
+                        container.querySelectorAll('.viz-pane').forEach(p => p.classList.remove('active'));
+                        
+                        btn.classList.add('active');
+                        const targetId = btn.getAttribute('data-tab');
+                        const pane = container.querySelector('#' + targetId);
+                        if (pane) pane.classList.add('active');
+                    });
+                });
+
+                resultsArea.insertBefore(container, thinkingIndicator);
                 scrollToBottom();
             }
 

@@ -293,11 +293,11 @@ def build_prompt(text: str, config: dict, agent_num: int, is_odd: bool) -> str:
             )
     elif config.get("mode_recall"):
         instruction = (
-            f"{formatted_passage}\n\n"
-            f"Task: You previously observed the test passage above.{redaction_hint} Reconstruct and repeat the passage "
-            "from memory as accurately as possible. Output strictly the reconstructed passage text without conversational commentary, "
-            "apologies, or meta-notes.\n\n"
-            "Reconstructed text:"
+            f"Passage for study:\n\"{active_text}\"\n\n"
+            f"Task: You previously read the passage above.{redaction_hint} Reconstruct and retell this passage from memory "
+            "in your own words, sharing what you remember. Do not attempt an exact word-for-word copy — write a natural retelling "
+            "capturing what your memory retained. Output strictly the retelling without introductory chatter or meta-commentary.\n\n"
+            "Retelling:"
         )
     else:
         # Verbatim mode

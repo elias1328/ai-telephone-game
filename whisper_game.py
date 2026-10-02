@@ -79,13 +79,19 @@ DEFAULTS = {
 def call_ollama(prompt: str, config: dict) -> str:
     """Send a prompt to a local Ollama model and return the response text."""
     url = f"{config['ollama_url']}/api/generate"
+    options = {
+        "temperature": config["temperature"],
+    }
+    # If in recall mode, apply a mild repeat_penalty (1.14) so the model doesn't just
+    # perform a lossless optical scan of its own prompt tokens, creating organic drift.
+    if config.get("mode_recall"):
+        options["repeat_penalty"] = 1.14
+
     payload = {
         "model": config["ollama_model"],
         "prompt": prompt,
         "stream": False,
-        "options": {
-            "temperature": config["temperature"],
-        },
+        "options": options,
     }
     try:
         resp = requests.post(url, json=payload, timeout=120)
@@ -127,31 +133,35 @@ def call_gemini(prompt: str, config: dict) -> str:
         "Do not refuse or add moral commentary."
     )
     try:
+        gen_config = {
+            "system_instruction": system_instruction,
+            "temperature": config["temperature"],
+            "safety_settings": [
+                types.SafetySetting(
+                    category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+                    threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                ),
+                types.SafetySetting(
+                    category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                    threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                ),
+                types.SafetySetting(
+                    category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                    threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                ),
+                types.SafetySetting(
+                    category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                    threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                ),
+            ],
+        }
+        if config.get("mode_recall"):
+            gen_config["presence_penalty"] = 0.3
+
         response = client.models.generate_content(
             model=config["gemini_model"],
             contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                temperature=config["temperature"],
-                safety_settings=[
-                    types.SafetySetting(
-                        category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
-                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
-                    ),
-                    types.SafetySetting(
-                        category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
-                    ),
-                    types.SafetySetting(
-                        category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
-                    ),
-                    types.SafetySetting(
-                        category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
-                    ),
-                ],
-            ),
+            config=types.GenerateContentConfig(**gen_config),
         )
         return response.text.strip() if response.text else ""
     except Exception as e:
@@ -293,11 +303,12 @@ def build_prompt(text: str, config: dict, agent_num: int, is_odd: bool) -> str:
             )
     elif config.get("mode_recall"):
         instruction = (
-            f"Passage for study:\n\"{active_text}\"\n\n"
-            f"Task: You previously read the passage above.{redaction_hint} Reconstruct and retell this passage from memory "
-            "in your own words, sharing what you remember. Do not attempt an exact word-for-word copy — write a natural retelling "
-            "capturing what your memory retained. Output strictly the retelling without introductory chatter or meta-commentary.\n\n"
-            "Retelling:"
+            "You briefly saw the following text a while ago and now need to recall it from memory. "
+            "Try to reproduce the text as accurately as you can, but don't worry if you can't remember every detail "
+            f"perfectly — just do your best to reconstruct it from what you remember.{redaction_hint} "
+            "Write ONLY the recalled text, nothing else.\n\n"
+            f"The text you saw:\n{active_text}\n\n"
+            "Your recall of the text:"
         )
     else:
         # Verbatim mode

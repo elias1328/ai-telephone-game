@@ -74,10 +74,10 @@ DEFAULTS = {
 
 def call_ollama(prompt: str, config: dict) -> str:
     """Send a prompt to a local Ollama model and return the response text."""
-    url = f"{config['ollama_url']}/api/generate"
+    url = f"{config['ollama_url']}/api/chat"
     payload = {
         "model": config["ollama_model"],
-        "prompt": prompt,
+        "messages": [{"role": "user", "content": prompt}],
         "stream": False,
         "options": {
             "temperature": config["temperature"],
@@ -86,7 +86,7 @@ def call_ollama(prompt: str, config: dict) -> str:
     try:
         resp = requests.post(url, json=payload, timeout=120)
         resp.raise_for_status()
-        return resp.json().get("response", "").strip()
+        return resp.json().get("message", {}).get("content", "").strip()
     except requests.ConnectionError:
         print(f"\n❌ Error: Cannot connect to Ollama at {config['ollama_url']}")
         print("   Make sure Ollama is running: ollama serve")

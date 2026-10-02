@@ -102,6 +102,11 @@ def run_game():
                 "expand_word_limit": expand_limit,
                 "mode_redact": config.get("mode_redact", False),
                 "mode_distraction": config.get("mode_distraction", False),
+                "mode_audio": bool(config.get("mode_audio", False)),
+                "audio_speed": int(config.get("audio_speed", 20)),
+                "audio_volume": float(config.get("audio_volume", 0.85)),
+                "audio_noise": float(config.get("audio_noise", 0.08)),
+                "audio_muffle": bool(config.get("audio_muffle", True)),
             }
 
             model_name = (

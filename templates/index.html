@@ -983,6 +983,34 @@
                 audioNoiseVal.textContent = `${e.target.value}%`;
             });
 
+            function getExportFilename(extension) {
+                const now = new Date();
+                const pad = (n) => String(n).padStart(2, '0');
+                const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+                
+                let modeTag = 'verbatim';
+                if (lastRunConfig) {
+                    if (lastRunConfig.mode_audio) {
+                        modeTag = 'audio';
+                    } else if (lastRunConfig.mode_summarize_expand) {
+                        modeTag = 'sum-exp';
+                    } else if (lastRunConfig.mode_recall) {
+                        modeTag = 'recall';
+                    }
+                }
+                
+                let topicTag = '';
+                if (lastRunConfig && lastRunConfig.generate_start_text && lastRunConfig.start_text_topic) {
+                    topicTag = '_' + lastRunConfig.start_text_topic.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 25);
+                } else if (lastRunRounds && lastRunRounds.length > 0 && lastRunRounds[0].text) {
+                    const snippet = lastRunRounds[0].text.split(/\s+/).slice(0, 3).join('-').toLowerCase().replace(/[^a-z0-9\-]+/g, '').slice(0, 20);
+                    if (snippet) topicTag = '_' + snippet;
+                }
+
+                const agentsCount = lastRunConfig ? `${lastRunConfig.num_agents}agents` : 'game';
+                return `telephone_${modeTag}${topicTag}_${agentsCount}_${timestamp}.${extension}`;
+            }
+
             btnExportMd.addEventListener('click', () => {
                 if (!lastRunRounds.length) return;
                 let md = `# AI Telephone Game — Experiment Results\n\n`;
@@ -999,7 +1027,7 @@
                 lastRunRounds.forEach(r => {
                     md += `| ${r.label} | ${r.word_count} |\n`;
                 });
-                downloadFile("telephone_game_results.md", md, "text/markdown");
+                downloadFile(getExportFilename("md"), md, "text/markdown");
             });
 
             btnExportJson.addEventListener('click', () => {
@@ -1009,7 +1037,7 @@
                     config: lastRunConfig,
                     rounds: lastRunRounds
                 };
-                downloadFile("telephone_game_results.json", JSON.stringify(exportObj, null, 2), "application/json");
+                downloadFile(getExportFilename("json"), JSON.stringify(exportObj, null, 2), "application/json");
             });
 
             function downloadFile(filename, content, type) {
@@ -1254,17 +1282,51 @@
                 const original = lastRunRounds[0];
                 const terminal = lastRunRounds[lastRunRounds.length - 1];
 
+                function normalizeWord(word) {
+                    if (!word) return '';
+                    let s = word.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
+                    s = s.toLowerCase().replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '');
+                    return s;
+                }
+
+                function buildWordSet(text) {
+                    const set = new Set();
+                    const tokens = text.match(/\S+/g) || [];
+                    tokens.forEach(rawToken => {
+                        const clean = normalizeWord(rawToken);
+                        if (clean) {
+                            set.add(clean);
+                            if (clean.includes('-') || clean.includes("'")) {
+                                clean.split(/[-']/).forEach(part => {
+                                    if (part) set.add(part);
+                                });
+                            }
+                        }
+                    });
+                    return set;
+                }
+
+                function isWordKnown(token, wordSet) {
+                    const clean = normalizeWord(token);
+                    if (!clean) return true;
+                    if (wordSet.has(clean)) return true;
+                    if (clean.includes('-')) {
+                        const parts = clean.split('-').filter(Boolean);
+                        if (parts.length > 0 && parts.every(p => wordSet.has(p))) return true;
+                    }
+                    if (clean.endsWith("'") && wordSet.has(clean.slice(0, -1))) return true;
+                    return false;
+                }
+
                 // Build original words set (lowercase, normalized)
-                const origTokens = original.text.toLowerCase().match(/\b[a-z0-9']+\b/g) || [];
-                const origSet = new Set(origTokens);
+                const origSet = buildWordSet(original.text);
 
                 // Build evolution rows HTML
                 let evolutionRowsHtml = '';
                 lastRunRounds.forEach((round, roundIdx) => {
                     const tokens = round.text.match(/\S+/g) || [];
                     const formattedTokens = tokens.map(token => {
-                        const clean = token.toLowerCase().replace(/[^a-z0-9']/g, '');
-                        if (roundIdx > 0 && !origSet.has(clean)) {
+                        if (roundIdx > 0 && !isWordKnown(token, origSet)) {
                             return `<span class="word-new">${escapeHtml(token)}</span>`;
                         }
                         return `<span class="word-kept">${escapeHtml(token)}</span>`;
@@ -1283,12 +1345,12 @@
 
                 // Build First vs Last Diff
                 const termTokens = terminal.text.match(/\S+/g) || [];
-                const termSet = new Set(terminal.text.toLowerCase().match(/\b[a-z0-9']+\b/g) || []);
+                const termSet = buildWordSet(terminal.text);
 
                 // Diff original text view (shows dropped vs preserved)
-                const origHighlighted = (original.text.match(/\S+/g) || []).map(token => {
-                    const clean = token.toLowerCase().replace(/[^a-z0-9']/g, '');
-                    if (termSet.has(clean)) {
+                const origTokens = original.text.match(/\S+/g) || [];
+                const origHighlighted = origTokens.map(token => {
+                    if (isWordKnown(token, termSet)) {
                         return `<span class="diff-kept">${escapeHtml(token)}</span>`;
                     } else {
                         return `<span class="diff-dropped">${escapeHtml(token)}</span>`;
@@ -1297,8 +1359,7 @@
 
                 // Diff terminal text view (shows preserved vs novel/hallucinated)
                 const termHighlighted = termTokens.map(token => {
-                    const clean = token.toLowerCase().replace(/[^a-z0-9']/g, '');
-                    if (origSet.has(clean)) {
+                    if (isWordKnown(token, origSet)) {
                         return `<span class="diff-kept">${escapeHtml(token)}</span>`;
                     } else {
                         return `<span class="diff-added">${escapeHtml(token)}</span>`;
@@ -1308,8 +1369,7 @@
                 // Retention statistics
                 let keptCount = 0;
                 termTokens.forEach(t => {
-                    const clean = t.toLowerCase().replace(/[^a-z0-9']/g, '');
-                    if (origSet.has(clean)) keptCount++;
+                    if (isWordKnown(t, origSet)) keptCount++;
                 });
                 const retentionRate = Math.round((keptCount / Math.max(1, origTokens.length)) * 100);
                 const driftRate = 100 - retentionRate;

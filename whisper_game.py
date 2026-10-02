@@ -67,6 +67,14 @@ DEFAULTS = {
     # Export
     "export_path": None,            # Path to export experiment results (.json or .md/.txt)
 
+    # Audio Whisper pipeline (TTS + Whisper STT)
+    "mode_audio": False,            # Enable true acoustic whisper pipeline
+    "audio_speed": 20,              # Speech speed percentage (-20 to +80)
+    "audio_volume": 0.85,           # Speech volume multiplier (0.3 to 1.5)
+    "audio_noise": 0.08,            # Background acoustic noise level (0.0 to 0.25)
+    "audio_muffle": True,           # Lowpass filter simulating acoustic whisper
+    "audio_dir": "static/audio",    # Output directory for audio clips
+
     # Model settings
     "temperature": 0.7,
 }
@@ -231,25 +239,14 @@ def wrap_with_distractions(text: str) -> str:
 
 
 # ============================================================================
-# PROMPT CONSTRUCTION
-# ============================================================================
-# COGNITIVE DISTRACTOR PUZZLES & PARSING (OPTION 1)
+# AUDIO RELAY & TEXT CLEANING
 # ============================================================================
 
-COGNITIVE_PUZZLES = [
-    ("Calculate 47 * 6.", "Name three European capital cities."),
-    ("Count backwards from 100 by 7s for five steps.", "Name three species of birds."),
-    ("What is 15% of 240?", "Name four African countries."),
-    ("Unscramble the word 'E P L P H A T E' (an animal).", "What is 18 * 4?"),
-    ("If today is Thursday, what day was it 5 days ago?", "Name three acoustic musical instruments."),
-    ("Calculate 84 divided by 7 plus 15.", "Name three planets in our solar system."),
-    ("Name four distinct kitchen utensils.", "Calculate 25 * 12."),
-    ("What is the square root of 144?", "Name three South American countries."),
-    ("Unscramble the word 'T E N P A L' (found in space).", "Calculate 99 minus 43."),
-    ("Count backwards from 50 by 4s for five steps.", "Name three marine mammals."),
-    ("Solve: 120 divided by 6 times 3.", "Name three countries that border France."),
-    ("What is 17 * 5?", "Name three musical genres."),
-]
+try:
+    from audio_relay import relay_audio_step, is_audio_available
+except ImportError:
+    relay_audio_step = None
+    is_audio_available = lambda: (False, "audio_relay module not found")
 
 
 def clean_passage_text(text: str) -> str:
@@ -262,33 +259,6 @@ def clean_passage_text(text: str) -> str:
         flags=re.IGNORECASE,
     )[0].strip()
     return cleaned.strip('"\'')
-
-
-def parse_agent_response(raw: str) -> tuple[str, str | None]:
-    """
-    Extract the recalled passage and any cognitive distractor answers
-    from an agent's response.
-    """
-    if not raw:
-        return "", None
-
-    patterns = [
-        r'\n+(?:\[Recalled Passage\]|\[Passage\]|Recalled Passage:|Recalled Text:|Passage:)\s*\n*(.*)',
-        r'\n+(?:[^\n]*(?:from memory|original passage|recalled passage|recreate the original|reproduce the original)[^\n]*:\s*\n*)(.*)',
-    ]
-    for p in patterns:
-        m = re.search(p, raw, re.IGNORECASE | re.DOTALL)
-        if m:
-            puzzle = raw[:m.start()].strip()
-            passage = clean_passage_text(m.group(1))
-            if passage:
-                return passage, (puzzle if puzzle else None)
-
-    paragraphs = [p.strip() for p in raw.split('\n\n') if p.strip()]
-    if len(paragraphs) > 1:
-        return clean_passage_text(paragraphs[-1]), '\n\n'.join(paragraphs[:-1]).strip()
-
-    return clean_passage_text(raw), None
 
 
 # ============================================================================
@@ -353,16 +323,12 @@ def build_prompt(text: str, config: dict, agent_num: int, is_odd: bool) -> str:
                 "Expanded passage:"
             )
     elif config.get("mode_recall"):
-        puzzle_idx = (agent_num - 1) % len(COGNITIVE_PUZZLES)
-        task1, task2 = COGNITIVE_PUZZLES[puzzle_idx]
         instruction = (
-            f"Read the following passage:\n\"{active_text}\"\n\n"
-            "Interference Task:\n"
-            "Solve this quick mental puzzle first:\n"
-            f"1. {task1}\n"
-            f"2. {task2}\n\n"
-            "Now, without looking back at the original text, repeat the original passage as accurately and faithfully as you can from memory (write strictly the passage without conversational notes or apologies):"
-            f"{redaction_hint}"
+            f"{formatted_passage}\n\n"
+            f"Task: Read the test passage above carefully.{redaction_hint} You are an agent in a telephone game experiment. "
+            "Repeat what was transmitted as accurately and faithfully as you can from memory. "
+            "Write ONLY the recalled text, without introductory conversational remarks, meta-commentary, or apologies.\n\n"
+            "Recalled text:"
         )
     else:
         # Verbatim mode
@@ -564,26 +530,39 @@ def run_telephone_game(config: dict):
         if config.get("mode_summarize_expand"):
             label += " (summarize)" if is_odd else " (expand)"
 
-        print(f"🔗 Agent {i}/{config['num_agents']} thinking...", end="", flush=True)
-        start_time = time.time()
-        raw_response = call_model(prompt, config)
-        elapsed = time.time() - start_time
-        print(f" done ({elapsed:.1f}s)")
+        if config.get("mode_audio"):
+            # Acoustic Audio Whisper Mode (TTS + Whisper STT)
+            audio_dir = config.get("audio_dir", "static/audio")
+            os.makedirs(audio_dir, exist_ok=True)
+            audio_path = os.path.join(audio_dir, f"round_{i}.mp3")
 
-        if not raw_response:
-            print(f"⚠️  Agent {i} returned empty response, stopping chain.")
-            break
-
-        if config.get("mode_recall"):
-            recalled_passage, puzzle_solution = parse_agent_response(raw_response)
-            current_text = recalled_passage
-            if puzzle_solution:
-                puzzle_summary = " | ".join(line.strip() for line in puzzle_solution.splitlines() if line.strip())
-                if len(puzzle_summary) > 75:
-                    puzzle_summary = puzzle_summary[:72] + "..."
-                print(f"   🧠 Solved Distractor: {puzzle_summary}")
+            print(f"🎙️  Agent {i}/{config['num_agents']} whispering audio...", end="", flush=True)
+            start_time = time.time()
+            transcribed, _ = relay_audio_step(
+                current_text,
+                agent_num=i,
+                output_audio_path=audio_path,
+                speed_pct=int(config.get("audio_speed", 20)),
+                volume_factor=float(config.get("audio_volume", 0.85)),
+                noise_level=float(config.get("audio_noise", 0.08)),
+                muffle=bool(config.get("audio_muffle", True)),
+            )
+            elapsed = time.time() - start_time
+            print(f" heard ({elapsed:.1f}s)")
+            current_text = transcribed
         else:
-            current_text = raw_response
+            # Standard LLM agent execution
+            print(f"🔗 Agent {i}/{config['num_agents']} thinking...", end="", flush=True)
+            start_time = time.time()
+            raw_response = call_model(prompt, config)
+            elapsed = time.time() - start_time
+            print(f" done ({elapsed:.1f}s)")
+
+            if not raw_response:
+                print(f"⚠️  Agent {i} returned empty response, stopping chain.")
+                break
+
+            current_text = clean_passage_text(raw_response)
 
         rounds.append((f"Agent {i}", current_text))
         print_round(label, current_text)
@@ -610,11 +589,10 @@ def parse_args() -> dict:
         epilog=textwrap.dedent("""\
             examples:
               %(prog)s                                    # defaults (Ollama, 5 agents, recall mode)
+              %(prog)s --mode-audio                       # acoustic audio whisper game (TTS + Whisper STT)
+              %(prog)s --mode-audio --audio-noise 0.12    # noisy whisper audio
               %(prog)s --provider gemini                  # use Gemini API
               %(prog)s --num-agents 10                    # 10 agents in chain
-              %(prog)s --generate-start-text              # let AI generate starting text
-              %(prog)s --mode-redact --mode-distraction   # enable extra difficulty
-              %(prog)s --no-mode-recall                   # disable recall mode (verbatim)
               %(prog)s --temperature 1.5                  # high temperature for more chaos
         """),
     )
@@ -669,7 +647,7 @@ def parse_args() -> dict:
     mode_group.add_argument(
         "--mode-recall", action=argparse.BooleanOptionalAction,
         default=DEFAULTS["mode_recall"],
-        help="'Recall from memory' cognitive distractor prompt (default: on)",
+        help="'Recall from memory' prompt (default: on)",
     )
     mode_group.add_argument(
         "--mode-summarize-expand", action=argparse.BooleanOptionalAction,
@@ -689,6 +667,31 @@ def parse_args() -> dict:
         "--mode-distraction", action=argparse.BooleanOptionalAction,
         default=DEFAULTS["mode_distraction"],
         help="Surround target text with distracting paragraphs (default: off)",
+    )
+
+    # Audio Whisper pipeline settings
+    audio_group = parser.add_argument_group("acoustic audio whisper settings (TTS + Whisper STT)")
+    audio_group.add_argument(
+        "--mode-audio", action=argparse.BooleanOptionalAction,
+        default=DEFAULTS["mode_audio"],
+        help="Enable acoustic audio whisper pipeline with TTS + Whisper STT (default: off)",
+    )
+    audio_group.add_argument(
+        "--audio-speed", type=int, default=DEFAULTS["audio_speed"],
+        help="Speech speed adjustment percentage (-20 to +80, default: 20)",
+    )
+    audio_group.add_argument(
+        "--audio-volume", type=float, default=DEFAULTS["audio_volume"],
+        help="Speech volume/power multiplier (0.3 to 1.5, default: 0.85)",
+    )
+    audio_group.add_argument(
+        "--audio-noise", type=float, default=DEFAULTS["audio_noise"],
+        help="Background acoustic pink noise level (0.0 to 0.25, default: 0.08)",
+    )
+    audio_group.add_argument(
+        "--audio-muffle", action=argparse.BooleanOptionalAction,
+        default=DEFAULTS["audio_muffle"],
+        help="Apply acoustic lowpass muffle filter (default: on)",
     )
 
     # Export options
@@ -725,6 +728,11 @@ def parse_args() -> dict:
         "expand_word_limit": expand_limit,
         "mode_redact": args.mode_redact,
         "mode_distraction": args.mode_distraction,
+        "mode_audio": args.mode_audio,
+        "audio_speed": args.audio_speed,
+        "audio_volume": args.audio_volume,
+        "audio_noise": args.audio_noise,
+        "audio_muffle": args.audio_muffle,
         "export_path": args.export_path,
     }
 

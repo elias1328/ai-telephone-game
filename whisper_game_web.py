@@ -19,7 +19,7 @@ import argparse
 from threading import Timer
 
 import requests
-from flask import Flask, render_template, request, Response, jsonify
+from flask import Flask, render_template, request, Response, jsonify, send_from_directory
 
 # Import the existing game logic
 from whisper_game import (
@@ -28,8 +28,9 @@ from whisper_game import (
     wrap_with_distractions,
     build_prompt,
     build_generation_prompt,
-    parse_agent_response,
+    clean_passage_text,
 )
+from audio_relay import relay_audio_step, is_audio_available
 
 app = Flask(__name__)
 
@@ -37,6 +38,12 @@ app = Flask(__name__)
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/audio/<path:filename>")
+def serve_audio(filename):
+    audio_dir = os.path.abspath("static/audio")
+    return send_from_directory(audio_dir, filename)
 
 
 @app.route("/api/models", methods=["GET"])
@@ -144,6 +151,13 @@ def run_game():
 
             summary_data = [{"agent": 0, "word_count": original_words, "time": 0}]
 
+            mode_audio = game_config.get("mode_audio", False)
+            audio_speed = int(game_config.get("audio_speed", 20))
+            audio_volume = float(game_config.get("audio_volume", 0.85))
+            audio_noise = float(game_config.get("audio_noise", 0.08))
+            audio_muffle = bool(game_config.get("audio_muffle", True))
+            session_id = str(int(time.time()))
+
             # Step 2: Run the chain
             for i in range(1, num_agents + 1):
                 yield emit("thinking", {"agent_num": i, "total": num_agents})
@@ -154,20 +168,38 @@ def run_game():
                 # Build the prompt using the existing logic (handles all modes)
                 prompt = build_prompt(current_text, game_config, i, is_odd)
 
-                try:
-                    raw_response = call_model(prompt, game_config)
-                except Exception as e:
-                    yield emit("error", {"message": f"Agent {i} failed: {str(e)}"})
-                    return
+                audio_url = None
+                if mode_audio:
+                    audio_dir = os.path.abspath("static/audio")
+                    os.makedirs(audio_dir, exist_ok=True)
+                    audio_filename = f"whisper_{session_id}_{i}.mp3"
+                    audio_path = os.path.join(audio_dir, audio_filename)
+
+                    try:
+                        transcribed, _ = relay_audio_step(
+                            current_text,
+                            agent_num=i,
+                            output_audio_path=audio_path,
+                            speed_pct=audio_speed,
+                            volume_factor=audio_volume,
+                            noise_level=audio_noise,
+                            muffle=audio_muffle,
+                        )
+                        current_text = transcribed
+                        audio_url = f"/audio/{audio_filename}"
+                    except Exception as e:
+                        yield emit("error", {"message": f"Audio Agent {i} failed: {str(e)}"})
+                        return
+                else:
+                    try:
+                        raw_response = call_model(prompt, game_config)
+                    except Exception as e:
+                        yield emit("error", {"message": f"Agent {i} failed: {str(e)}"})
+                        return
+
+                    current_text = clean_passage_text(raw_response)
 
                 elapsed = time.time() - start_time
-
-                puzzle_solution = None
-                if game_config.get("mode_recall"):
-                    current_text, puzzle_solution = parse_agent_response(raw_response)
-                else:
-                    current_text = raw_response
-
                 word_count = len(current_text.split())
 
                 summary_data.append(
@@ -179,7 +211,7 @@ def run_game():
                     {
                         "agent_num": i,
                         "text": current_text,
-                        "distractor_solution": puzzle_solution,
+                        "audio_url": audio_url,
                         "word_count": word_count,
                         "time_taken": elapsed,
                     },

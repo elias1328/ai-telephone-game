@@ -707,7 +707,49 @@
                             <span class="slider"></span>
                         </label>
                     </div>
-                    <div class="toggle-description">Agents solve an intervening mental puzzle (Brown-Peterson distractor) to disrupt working memory before reciting from memory.</div>
+                    <div class="toggle-description">Agents must try to recall exactly what was said from memory.</div>
+                </div>
+
+                <div class="toggle-container">
+                    <div class="toggle-row">
+                        <label for="mode-audio">🎙️ Acoustic Audio Mode (TTS + Whisper)</label>
+                        <label class="switch">
+                            <input type="checkbox" id="mode-audio">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div class="toggle-description">Agents speak aloud via neural TTS, acoustic noise/muffling is added, and OpenAI Whisper transcribes what was heard.</div>
+                    
+                    <div id="audio-settings-container" class="sub-settings" style="display: none;">
+                        <div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 0.2rem;">
+                                <label for="audio-speed" style="font-size: 0.8rem; color: var(--text-secondary);">Talk Speed:</label>
+                                <span id="audio-speed-val" style="font-weight: 600; color: var(--accent-color);">+20%</span>
+                            </div>
+                            <input type="range" id="audio-speed" min="-20" max="80" step="5" value="20" style="width: 100%;">
+                        </div>
+
+                        <div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 0.2rem;">
+                                <label for="audio-volume" style="font-size: 0.8rem; color: var(--text-secondary);">Talk Power / Volume:</label>
+                                <span id="audio-volume-val" style="font-weight: 600; color: var(--accent-color);">85%</span>
+                            </div>
+                            <input type="range" id="audio-volume" min="20" max="120" step="5" value="85" style="width: 100%;">
+                        </div>
+
+                        <div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 0.2rem;">
+                                <label for="audio-noise" style="font-size: 0.8rem; color: var(--text-secondary);">Background Room Noise:</label>
+                                <span id="audio-noise-val" style="font-weight: 600; color: var(--accent-color);">8%</span>
+                            </div>
+                            <input type="range" id="audio-noise" min="0" max="25" step="1" value="8" style="width: 100%;">
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.2rem;">
+                            <label for="audio-muffle" style="font-size: 0.8rem; color: var(--text-secondary); cursor: pointer;">Acoustic Muffle (Lowpass)</label>
+                            <input type="checkbox" id="audio-muffle" checked style="accent-color: var(--accent-color); cursor: pointer;">
+                        </div>
+                    </div>
                 </div>
 
                 <div class="toggle-container">
@@ -914,6 +956,33 @@
                 expandLimitCustomGroup.style.display = (e.target.value === 'custom') ? 'block' : 'none';
             });
 
+            const modeAudioToggle = document.getElementById('mode-audio');
+            const audioSettingsContainer = document.getElementById('audio-settings-container');
+            const audioSpeed = document.getElementById('audio-speed');
+            const audioSpeedVal = document.getElementById('audio-speed-val');
+            const audioVolume = document.getElementById('audio-volume');
+            const audioVolumeVal = document.getElementById('audio-volume-val');
+            const audioNoise = document.getElementById('audio-noise');
+            const audioNoiseVal = document.getElementById('audio-noise-val');
+            const audioMuffle = document.getElementById('audio-muffle');
+
+            modeAudioToggle.addEventListener('change', (e) => {
+                audioSettingsContainer.style.display = e.target.checked ? 'block' : 'none';
+            });
+
+            audioSpeed.addEventListener('input', (e) => {
+                const val = parseInt(e.target.value, 10);
+                audioSpeedVal.textContent = val >= 0 ? `+${val}%` : `${val}%`;
+            });
+
+            audioVolume.addEventListener('input', (e) => {
+                audioVolumeVal.textContent = `${e.target.value}%`;
+            });
+
+            audioNoise.addEventListener('input', (e) => {
+                audioNoiseVal.textContent = `${e.target.value}%`;
+            });
+
             btnExportMd.addEventListener('click', () => {
                 if (!lastRunRounds.length) return;
                 let md = `# AI Telephone Game — Experiment Results\n\n`;
@@ -990,7 +1059,12 @@
                     mode_summarize_expand: modeSummarizeToggle.checked,
                     expand_word_limit: expandWordLimit,
                     mode_redact: document.getElementById('mode-redact').checked,
-                    mode_distraction: document.getElementById('mode-distraction').checked
+                    mode_distraction: document.getElementById('mode-distraction').checked,
+                    mode_audio: modeAudioToggle.checked,
+                    audio_speed: parseInt(audioSpeed.value, 10),
+                    audio_volume: parseFloat(audioVolume.value) / 100.0,
+                    audio_noise: parseFloat(audioNoise.value) / 100.0,
+                    audio_muffle: audioMuffle.checked
                 };
 
                 lastRunConfig = config;
@@ -1114,7 +1188,7 @@
                             data.text, 
                             [`${data.word_count} words`, `${data.time_taken.toFixed(2)}s`],
                             false,
-                            data.distractor_solution
+                            data.audio_url
                         );
                         break;
                     case 'summary':
@@ -1133,20 +1207,22 @@
                 }
             }
 
-            function createCard(title, text, badges = [], isError = false, distractor = null) {
+            function createCard(title, text, badges = [], isError = false, audioUrl = null) {
                 const card = document.createElement('div');
                 card.className = 'card';
                 if (isError) card.style.borderColor = 'var(--danger-color)';
 
                 let badgesHtml = badges.map(b => `<span class="badge">${b}</span>`).join('');
                 
-                let distractorHtml = '';
-                if (distractor) {
-                    distractorHtml = `
-                        <details class="distractor-box">
-                            <summary>🧠 Solved Cognitive Distractor</summary>
-                            <div class="distractor-content">${escapeHtml(distractor)}</div>
-                        </details>
+                let audioHtml = '';
+                if (audioUrl) {
+                    audioHtml = `
+                        <div style="margin-top: 0.75rem; border-top: 1px solid var(--border-color); padding-top: 0.5rem;">
+                            <div style="font-size: 0.75rem; color: var(--accent-color); font-weight: 600; margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.35rem;">
+                                🎙️ Whispered Audio
+                            </div>
+                            <audio controls src="${audioUrl}" style="width: 100%; height: 32px; border-radius: 4px; outline: none;"></audio>
+                        </div>
                     `;
                 }
 
@@ -1157,7 +1233,7 @@
                     </div>
                     <div class="card-body">
                         ${escapeHtml(text)}
-                        ${distractorHtml}
+                        ${audioHtml}
                     </div>
                 `;
                 

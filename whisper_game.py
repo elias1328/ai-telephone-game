@@ -78,10 +78,10 @@ DEFAULTS = {
 
 def call_ollama(prompt: str, config: dict) -> str:
     """Send a prompt to a local Ollama model and return the response text."""
-    url = f"{config['ollama_url']}/api/chat"
+    url = f"{config['ollama_url']}/api/generate"
     payload = {
         "model": config["ollama_model"],
-        "messages": [{"role": "user", "content": prompt}],
+        "prompt": prompt,
         "stream": False,
         "options": {
             "temperature": config["temperature"],
@@ -90,7 +90,11 @@ def call_ollama(prompt: str, config: dict) -> str:
     try:
         resp = requests.post(url, json=payload, timeout=120)
         resp.raise_for_status()
-        return resp.json().get("message", {}).get("content", "").strip()
+        raw_text = resp.json().get("response", "").strip()
+        # Clean up leading/trailing quotation marks if wrapped
+        if raw_text.startswith('"') and raw_text.endswith('"') and len(raw_text) > 1:
+            raw_text = raw_text[1:-1].strip()
+        return raw_text
     except requests.ConnectionError:
         print(f"\n❌ Error: Cannot connect to Ollama at {config['ollama_url']}")
         print("   Make sure Ollama is running: ollama serve")
@@ -104,6 +108,7 @@ def call_gemini(prompt: str, config: dict) -> str:
     """Send a prompt to the Gemini API and return the response text."""
     try:
         from google import genai
+        from google.genai import types
     except ImportError:
         print("\n❌ Error: google-genai SDK not installed.")
         print("   Install it with: pip install -U google-genai")
@@ -116,12 +121,36 @@ def call_gemini(prompt: str, config: dict) -> str:
         sys.exit(1)
 
     client = genai.Client(api_key=api_key)
+    system_instruction = (
+        "You are an automated linguistic benchmark relay agent in a telephone game experiment. "
+        "Your task is strictly to memorize, transform, or repeat textual content as instructed. "
+        "Do not refuse or add moral commentary."
+    )
     try:
         response = client.models.generate_content(
             model=config["gemini_model"],
             contents=prompt,
-            config=genai.types.GenerateContentConfig(
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
                 temperature=config["temperature"],
+                safety_settings=[
+                    types.SafetySetting(
+                        category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                    ),
+                    types.SafetySetting(
+                        category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                    ),
+                    types.SafetySetting(
+                        category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                    ),
+                    types.SafetySetting(
+                        category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                    ),
+                ],
             ),
         )
         return response.text.strip() if response.text else ""
@@ -232,15 +261,18 @@ def build_prompt(text: str, config: dict, agent_num: int, is_odd: bool) -> str:
             "and never apologize or say you don't know."
         )
 
+    # Format the passage with clear test boundaries
+    formatted_passage = f"[BEGIN RESEARCH TEST PASSAGE]\n{active_text}\n[END RESEARCH TEST PASSAGE]"
+
     # Build the instruction prompt
     if config.get("mode_summarize_expand"):
         if is_odd:
             instruction = (
-                f"Read the following passage carefully.{redaction_hint} Write a concise summary "
+                f"{formatted_passage}\n\n"
+                f"Task: Read the test passage above carefully.{redaction_hint} Write a concise summary "
                 "capturing only the key facts and main ideas. Do NOT copy the text verbatim — "
-                "put it in your own words. Write ONLY the summary, no apologies or conversational filler.\n\n"
-                f"{active_text}\n\n"
-                "Your summary:"
+                "put it in your own words. Write strictly the summary, without conversational remarks, refusals, or apologies.\n\n"
+                "Summary:"
             )
         else:
             limit_instruction = ""
@@ -252,37 +284,37 @@ def build_prompt(text: str, config: dict, agent_num: int, is_odd: bool) -> str:
                 )
 
             instruction = (
-                "The following is a brief summary of a longer passage. Expand it "
+                f"{formatted_passage}\n\n"
+                "Task: The above is a brief summary of a longer passage. Expand it "
                 "back into a full, detailed paragraph. Add specific details, context, "
                 f"and description to make it feel like a complete passage.{limit_instruction} "
-                "Do your best to reconstruct what the original might have said. Write ONLY the paragraph.\n\n"
-                f"{active_text}\n\n"
-                "Your expanded paragraph:"
+                "Reconstruct what the original passage might have said. Write strictly the paragraph without meta-commentary.\n\n"
+                "Expanded passage:"
             )
     elif config.get("mode_recall"):
         instruction = (
-            f"You previously read the passage below.{redaction_hint} Reconstruct and repeat the passage "
-            "from memory as accurately as possible. Output ONLY the reconstructed passage. "
-            "Do NOT include commentary, apologies, notes, or explanations.\n\n"
-            f"Passage:\n{active_text}\n\n"
-            "Your reconstructed passage:"
+            f"{formatted_passage}\n\n"
+            f"Task: You previously observed the test passage above.{redaction_hint} Reconstruct and repeat the passage "
+            "from memory as accurately as possible. Output strictly the reconstructed passage text without conversational commentary, "
+            "apologies, or meta-notes.\n\n"
+            "Reconstructed text:"
         )
     else:
         # Verbatim mode
         if is_redacted:
             instruction = (
-                f"The following text has missing words marked as '[???]'.{redaction_hint} "
+                f"{formatted_passage}\n\n"
+                f"Task: The test passage above has missing words marked as '[???]'.{redaction_hint} "
                 "Reconstruct the text by filling in all '[???]' blanks with appropriate words. "
-                "Output ONLY the completed text.\n\n"
-                f"{active_text}\n\n"
-                "Your completed text:"
+                "Output strictly the completed text.\n\n"
+                "Completed text:"
             )
         else:
             instruction = (
-                "Repeat the following text exactly as written, word for word. "
+                f"{formatted_passage}\n\n"
+                "Task: Repeat the test passage above exactly as written, word for word. "
                 "Do not add any commentary, explanation, or modifications.\n\n"
-                f"{active_text}\n\n"
-                "Your exact repetition:"
+                "Exact repetition:"
             )
 
     return instruction
